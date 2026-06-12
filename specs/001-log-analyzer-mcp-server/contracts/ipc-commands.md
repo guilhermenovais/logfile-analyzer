@@ -1,0 +1,86 @@
+# Contract: Tauri Commands (UI-facing IPC)
+
+Every command is a `snake_case` Rust handler invoked as `camelCase` from JS via a
+typed wrapper in `src/ipc/` (never `invoke()` directly — Principle I). Every
+fallible command returns `Result<T, AppError>` where `AppError: Serialize`
+(Principle I). Each command has a matching capability entry in
+`src-tauri/capabilities/` (Principle II). Streaming commands take a Tauri
+`Channel<T>` argument (Principle VI). `line_index` is **1-based**, matching the
+MCP contract.
+
+`AppError` variants (shared, serialized to the frontend): `NoActiveWorkspace`,
+`FileAlreadyInWorkspace`, `AliasCollision`, `WorkspaceAliasInUse`,
+`FileNotFound`, `FileUnavailable`, `LineOutOfRange`, `InvalidQuery`,
+`TimeRangeUnavailable`, `Io(String)`.
+
+---
+
+## Workspace (US1, US6 — FR-001, FR-004–FR-009, FR-030)
+
+| Command | Input | Output | Notes |
+|---------|-------|--------|-------|
+| `create_workspace` | — | `WorkspaceSummary` | Starts a new draft; if a dirty draft is open, caller first resolves the save prompt (FR-006). |
+| `get_active_workspace` | — | `WorkspaceSummary` | Restores/returns the active (auto-recovered draft on launch, FR-005). |
+| `save_workspace` | `{ alias }` | `WorkspaceSummary` | Reject `WorkspaceAliasInUse` on collision (FR-008). |
+| `discard_draft` | — | `()` | Drops the unsaved draft (FR-007). |
+| `list_saved_workspaces` | — | `WorkspaceSummary[]` | (FR-009). |
+| `open_workspace` | `{ id }` | `WorkspaceSummary` | Loads persisted state; missing files marked unavailable, load still succeeds (Edge Cases, FR-009). Save-prompt flow handled before calling. |
+| `is_workspace_dirty` | — | `{ dirty: boolean }` | Drives the close/new save prompt (FR-006). |
+
+`WorkspaceSummary`: `{ id, alias|null, is_draft, files: LogFileSummary[] }`.
+
+## Files (US1, US2 — FR-002, FR-003, FR-027, FR-028)
+
+| Command | Input | Output | Notes |
+|---------|-------|--------|-------|
+| `add_file` | `{ path, alias? }` | `LogFileSummary` | Canonicalize path; reject `FileAlreadyInWorkspace` (FR-002) and `AliasCollision` (FR-003); default alias = filename w/o ext. Kicks off background index + timestamp detection. |
+| `list_files` | — | `LogFileSummary[]` | Aliases + availability (FR-026 parity with MCP). |
+| `get_file_properties` | `{ alias }` | `FileProperties` | `total_lines`, `has_timestamp_format`, `available`, `indexing_complete` (FR-027). |
+| `get_line` | `{ alias, line_index }` | `{ line_index, content }` | `LineOutOfRange` if out of range (FR-028, Edge Cases). |
+| `remove_file` | `{ alias }` | `()` | Removes the entry + its highlights/history. |
+
+`LogFileSummary`: `{ alias, path, available, has_timestamp_format, indexing_complete }`.
+
+## Viewing (US1 — FR-014, FR-016, FR-032)
+
+| Command | Input | Output | Notes |
+|---------|-------|--------|-------|
+| `stream_lines` | `{ alias, start_index, count, channel }` | `()` | Streams a range of lines as `Channel<LineBatch>` for the virtualized viewer; payloads <100KB (Principle VI). Works while indexing (incremental, FR-014). |
+| `subscribe_index_progress` | `{ alias, channel }` | `()` | Streams index/total-lines progress as `Channel<IndexProgress>` (drives <2s first paint, SC-001). |
+
+`LineBatch`: `{ start_index, lines: string[] }`. `IndexProgress`:
+`{ indexed_lines, complete }`. (Line-wrap toggle FR-015 is a pure frontend view
+state, no command.)
+
+## Search (US3, US5 — FR-021–FR-025, FR-013, FR-024)
+
+| Command | Input | Output | Notes |
+|---------|-------|--------|-------|
+| `search` | `{ alias, query, search_type, time_from?, time_to?, channel }` | `()` | Streams matches via `Channel<SearchMatchBatch>`. `search_type` ∈ `logical`/`regex`. `InvalidQuery` on bad regex/expression; `TimeRangeUnavailable` if no detected format (US5). Records history (FR-024). |
+| `search_with_context` | `{ alias, query, search_type, surrounding_count?, time_from?, time_to?, channel }` | `()` | Same as MCP `search_with_context` (default 5, max 200), streamed. Shared engine with the MCP tool (FR-029). |
+| `get_search_history` | `{ alias }` | `SearchHistoryEntry[]` | (FR-024). |
+
+`SearchMatchBatch`: `{ matches: { line_index, content }[] }`.
+
+## Highlights (US4 — FR-017–FR-020)
+
+| Command | Input | Output | Notes |
+|---------|-------|--------|-------|
+| `set_highlight` | `{ alias, line_index, label? }` | `()` | Create/update highlight (origin `user`). `LineOutOfRange` if invalid. |
+| `clear_highlight` | `{ alias, line_index }` | `()` | Remove highlight + label. |
+| `set_label` | `{ alias, line_index, label }` | `()` | Update/clear label on a highlighted line (FR-018). |
+| `list_highlights` | `{ alias }` | `Highlight[]` | `{ line_index, content, label|null, origin }` (FR-020); same data as MCP `list_highlights` (FR-029). |
+
+(The "highlighted only" view filter, FR-019, is frontend state filtering
+`list_highlights` results — no dedicated command.)
+
+---
+
+## Cross-cutting
+
+- **Typed bindings**: generated by `tauri-specta` into `src/bindings/`; audited
+  on any PR touching a command (Principle I).
+- **Capabilities**: every command above adds an entry under
+  `src-tauri/capabilities/` (Principle II).
+- **Consistency**: search/context/highlight commands share the same `AppState`
+  engine and SQLite rows as the MCP tools (FR-029).
