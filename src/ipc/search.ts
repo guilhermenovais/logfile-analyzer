@@ -68,9 +68,10 @@ export async function searchWithContext(
   );
 }
 
-/** Returns the recorded search history for `alias`, most recent first (FR-024). */
-export async function getSearchHistory(
-  alias: string,
-): Promise<SearchHistoryEntry[]> {
-  return unwrapResult(await commands.getSearchHistory(alias));
+/**
+ * Returns the active workspace's recorded search history, most recently
+ * used first (FR-013/FR-024).
+ */
+export async function getSearchHistory(): Promise<SearchHistoryEntry[]> {
+  return unwrapResult(await commands.getSearchHistory());
 }

@@ -258,7 +258,7 @@ fn get_line_on_unavailable_file_is_file_unavailable() {
 fn search_with_context_logical_returns_matches_with_surrounding_lines() {
     let app = mock_app();
     let state = app.state::<Arc<AppState>>();
-    let file_id = add_ready_file(
+    add_ready_file(
         &state,
         "app",
         b"start\nconnecting to db\nan error talking to db\nrecovered\nend\n",
@@ -286,9 +286,10 @@ fn search_with_context_logical_returns_matches_with_surrounding_lines() {
     assert_eq!(m.after.len(), 1);
     assert_eq!(m.after[0].content, "recovered");
 
-    // FR-024: the search is recorded in this file's history.
+    // FR-024: the search is recorded in the workspace's history.
     let db = state.db.lock().unwrap();
-    let history = search_history::list_for_file(&db, file_id).unwrap();
+    let workspace_id = *state.active_workspace_id.lock().unwrap();
+    let history = search_history::list_for_workspace(&db, workspace_id).unwrap();
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].query, "\"error\" AND \"db\"");
 }
@@ -339,7 +340,7 @@ fn search_with_context_time_range_without_timestamp_format_is_unavailable() {
 fn search_with_context_time_range_filters_matches_by_timestamp() {
     let app = mock_app();
     let state = app.state::<Arc<AppState>>();
-    let file_id = add_ready_file_with_timestamps(
+    add_ready_file_with_timestamps(
         &state,
         "app",
         b"2026-06-12T10:00:00Z connecting to db\n\
@@ -363,7 +364,8 @@ fn search_with_context_time_range_filters_matches_by_timestamp() {
     assert_eq!(output.matches[0].line_index, 2);
 
     let db = state.db.lock().unwrap();
-    let history = search_history::list_for_file(&db, file_id).unwrap();
+    let workspace_id = *state.active_workspace_id.lock().unwrap();
+    let history = search_history::list_for_workspace(&db, workspace_id).unwrap();
     assert_eq!(history[0].time_from, Some(1_781_258_460_000));
     assert_eq!(history[0].time_to, None);
 }

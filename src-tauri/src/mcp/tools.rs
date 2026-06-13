@@ -338,9 +338,10 @@ fn run_search_with_context(
     };
     {
         let db = state.db.lock().unwrap();
+        let workspace_id = *state.active_workspace_id.lock().unwrap();
         search_history::record(
             &db,
-            runtime.file_id,
+            workspace_id,
             &input.query,
             history_search_type,
             time_from,

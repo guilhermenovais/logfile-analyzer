@@ -6,7 +6,9 @@ import { HighlightPanel } from "@/components/HighlightPanel";
 import { LogViewer } from "@/components/LogViewer";
 import { SavePromptDialog } from "@/components/SavePromptDialog";
 import { SearchBar } from "@/components/SearchBar";
+import { SearchResultsPanel } from "@/components/SearchResultsPanel";
 import { useHighlights } from "@/hooks/useHighlights";
+import { useSearchUiStore } from "@/hooks/useSearchUiStore";
 import { pickLogFile } from "@/ipc/dialog";
 import {
   useActiveWorkspace,
@@ -48,6 +50,13 @@ export function WorkspacePage() {
   const [savePromptError, setSavePromptError] = useState<string | null>(null);
 
   const highlights = useHighlights(selectedAlias);
+  // Subscribing to the whole slice (rather than a derived value) ensures the
+  // component re-renders on every change to it, so the `searchMatchLines`/
+  // `scrollToLine` selectors below (read non-reactively) stay fresh.
+  const searchSlice = useSearchUiStore(
+    (state) => state.slices[selectedAlias ?? ""],
+  );
+  const panelOpen = searchSlice?.panelOpen ?? false;
 
   const files = workspace?.files ?? [];
 
@@ -301,6 +310,14 @@ export function WorkspacePage() {
                 }
               />
             </FeatureErrorBoundary>
+            {panelOpen && (
+              <FeatureErrorBoundary
+                key={`search-results-${selectedAlias}`}
+                label="Search results"
+              >
+                <SearchResultsPanel alias={selectedAlias} />
+              </FeatureErrorBoundary>
+            )}
             <FeatureErrorBoundary
               key={`highlights-${selectedAlias}`}
               label="Highlights"
@@ -325,6 +342,8 @@ export function WorkspacePage() {
                   highlights={highlights.highlights}
                   highlightedOnly={highlightedOnly}
                   onToggleHighlight={handleToggleHighlight}
+                  searchMatchLines={useSearchUiStore.searchMatchLines(selectedAlias)}
+                  scrollToLine={useSearchUiStore.scrollToLine(selectedAlias)}
                 />
               </FeatureErrorBoundary>
             </div>

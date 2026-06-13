@@ -1,38 +1,22 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ContextMatch, SearchHistoryEntry } from "@/bindings";
+import type { SearchHistoryEntry } from "@/bindings";
+import type { UseSearchHistoryResult } from "@/hooks/useSearchHistory";
 import type { UseSearchResult } from "@/hooks/useSearch";
+import { useSearchUiStore } from "@/hooks/useSearchUiStore";
 import { SearchBar } from "./SearchBar";
 
-const { useSearch } = vi.hoisted(() => ({
+const { useSearch, useSearchHistory } = vi.hoisted(() => ({
   useSearch: vi.fn(),
+  useSearchHistory: vi.fn(),
 }));
 
 vi.mock("@/hooks/useSearch", () => ({ useSearch }));
-
-const match: ContextMatch = {
-  line_index: 3,
-  before: [{ line_index: 2, content: "connecting to db" }],
-  match: { line_index: 3, content: "an error talking to db" },
-  after: [{ line_index: 4, content: "recovered" }],
-};
-
-const historyEntry: SearchHistoryEntry = {
-  id: 1,
-  file_id: 1,
-  query: '"error" AND "db"',
-  search_type: "logical",
-  time_from: null,
-  time_to: null,
-  executed_at: "2026-01-01T00:00:00Z",
-};
+vi.mock("@/hooks/useSearchHistory", () => ({ useSearchHistory }));
 
 function mockResult(overrides: Partial<UseSearchResult> = {}): UseSearchResult {
   return {
-    results: [],
-    truncated: false,
-    history: [],
     isSearching: false,
     error: null,
     runSearch: vi.fn(),
@@ -40,9 +24,23 @@ function mockResult(overrides: Partial<UseSearchResult> = {}): UseSearchResult {
   };
 }
 
+function mockHistory(
+  overrides: Partial<UseSearchHistoryResult> = {},
+): UseSearchHistoryResult {
+  return {
+    history: [],
+    isLoading: false,
+    suggestions: vi.fn().mockReturnValue([]),
+    ...overrides,
+  };
+}
+
 describe("SearchBar", () => {
   beforeEach(() => {
     useSearch.mockReset();
+    useSearchHistory.mockReset();
+    useSearchHistory.mockReturnValue(mockHistory());
+    useSearchUiStore.setState({ slices: {} });
   });
 
   it("submits the query in logical mode by default", async () => {
@@ -81,24 +79,6 @@ describe("SearchBar", () => {
     expect(runSearch).toHaveBeenCalledWith("err.*", "regex", null, null);
   });
 
-  it("displays matches with surrounding context", () => {
-    useSearch.mockReturnValue(mockResult({ results: [match] }));
-
-    render(<SearchBar alias="app" hasTimestampFormat={false} />);
-
-    expect(screen.getByText(/an error talking to db/)).toBeInTheDocument();
-    expect(screen.getByText(/connecting to db/)).toBeInTheDocument();
-    expect(screen.getByText(/recovered/)).toBeInTheDocument();
-  });
-
-  it("shows a truncated notice when results were capped", () => {
-    useSearch.mockReturnValue(mockResult({ results: [match], truncated: true }));
-
-    render(<SearchBar alias="app" hasTimestampFormat={false} />);
-
-    expect(screen.getByText(/first 1 matches/)).toBeInTheDocument();
-  });
-
   it("displays an error message", () => {
     useSearch.mockReturnValue(mockResult({ error: "InvalidQuery" }));
 
@@ -107,22 +87,18 @@ describe("SearchBar", () => {
     expect(screen.getByText("InvalidQuery")).toBeInTheDocument();
   });
 
-  it("re-runs a search from history", async () => {
-    const runSearch = vi.fn();
-    useSearch.mockReturnValue(mockResult({ history: [historyEntry], runSearch }));
+  it("does not render an inline results list or a History section", () => {
+    useSearch.mockReturnValue(mockResult());
+    useSearchUiStore.getState().setResults(
+      "app",
+      [{ line_index: 3, content: "an error talking to db" }],
+      false,
+    );
 
     render(<SearchBar alias="app" hasTimestampFormat={false} />);
 
-    await userEvent.click(
-      screen.getByRole("button", { name: /"error" AND "db"/ }),
-    );
-
-    expect(runSearch).toHaveBeenCalledWith(
-      '"error" AND "db"',
-      "logical",
-      null,
-      null,
-    );
+    expect(screen.queryByText(/an error talking to db/)).not.toBeInTheDocument();
+    expect(screen.queryByText("History")).not.toBeInTheDocument();
   });
 
   it("disables the input and search button when no file is selected", () => {
@@ -162,5 +138,101 @@ describe("SearchBar", () => {
       new Date("2026-06-12T10:00").getTime(),
       null,
     );
+  });
+
+  it("preserves the query in the store after the results panel is closed (FR-008)", async () => {
+    const runSearch = vi.fn();
+    useSearch.mockReturnValue(mockResult({ runSearch }));
+
+    render(<SearchBar alias="app" hasTimestampFormat={false} />);
+
+    await userEvent.type(screen.getByLabelText("Search query"), '"db"');
+    useSearchUiStore.getState().setResults("app", [], false);
+    useSearchUiStore.getState().closePanel("app");
+
+    expect(screen.getByLabelText("Search query")).toHaveValue('"db"');
+  });
+
+  describe("search history", () => {
+    const historyEntry: SearchHistoryEntry = {
+      id: 1,
+      workspace_id: 1,
+      query: "err.*",
+      search_type: "regex",
+      time_from: 1000,
+      time_to: 2000,
+      last_used_at: "2026-06-12T10:00:00.000Z",
+    };
+
+    it("shows up to 5 autocomplete suggestions from search history when focused (FR-010)", async () => {
+      useSearch.mockReturnValue(mockResult());
+      const suggestions = vi.fn().mockReturnValue([historyEntry]);
+      useSearchHistory.mockReturnValue(mockHistory({ suggestions }));
+
+      render(<SearchBar alias="app" hasTimestampFormat={false} />);
+
+      const input = screen.getByLabelText("Search query");
+      expect(input).toHaveAttribute("role", "combobox");
+
+      await userEvent.click(input);
+
+      expect(screen.getByRole("listbox")).toBeInTheDocument();
+      expect(screen.getByRole("option", { name: /err\.\*/ })).toBeInTheDocument();
+    });
+
+    it('shows an empty-history state when there are no suggestions yet', async () => {
+      useSearch.mockReturnValue(mockResult());
+      useSearchHistory.mockReturnValue(mockHistory());
+
+      render(<SearchBar alias="app" hasTimestampFormat={false} />);
+
+      await userEvent.click(screen.getByLabelText("Search query"));
+
+      expect(screen.getByText(/no recent searches/i)).toBeInTheDocument();
+    });
+
+    it("renders a clock icon button that opens the search history overlay (FR-011)", async () => {
+      useSearch.mockReturnValue(mockResult());
+      useSearchHistory.mockReturnValue(
+        mockHistory({ history: [historyEntry] }),
+      );
+
+      render(<SearchBar alias="app" hasTimestampFormat={false} />);
+
+      await userEvent.click(screen.getByRole("button", { name: /search history/i }));
+
+      expect(screen.getByRole("option", { name: /err\.\*/ })).toBeInTheDocument();
+    });
+
+    it("selecting a suggestion applies the entry and immediately re-runs the search (FR-018)", async () => {
+      const runSearch = vi.fn();
+      useSearch.mockReturnValue(mockResult({ runSearch }));
+      const suggestions = vi.fn().mockReturnValue([historyEntry]);
+      useSearchHistory.mockReturnValue(mockHistory({ suggestions }));
+
+      render(<SearchBar alias="app" hasTimestampFormat={false} />);
+
+      await userEvent.click(screen.getByLabelText("Search query"));
+      await userEvent.click(screen.getByRole("option", { name: /err\.\*/ }));
+
+      expect(runSearch).toHaveBeenCalledWith("err.*", "regex", 1000, 2000);
+      expect(screen.getByLabelText("Search query")).toHaveValue("err.*");
+    });
+
+    it("selecting a history overlay entry applies the entry and immediately re-runs the search (FR-018)", async () => {
+      const runSearch = vi.fn();
+      useSearch.mockReturnValue(mockResult({ runSearch }));
+      useSearchHistory.mockReturnValue(
+        mockHistory({ history: [historyEntry] }),
+      );
+
+      render(<SearchBar alias="app" hasTimestampFormat={false} />);
+
+      await userEvent.click(screen.getByRole("button", { name: /search history/i }));
+      await userEvent.click(screen.getByRole("option", { name: /err\.\*/ }));
+
+      expect(runSearch).toHaveBeenCalledWith("err.*", "regex", 1000, 2000);
+      expect(screen.getByLabelText("Search query")).toHaveValue("err.*");
+    });
   });
 });

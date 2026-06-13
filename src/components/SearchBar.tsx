@@ -1,6 +1,11 @@
 import { useState, type FormEvent } from "react";
+import { Clock } from "lucide-react";
+import type { SearchHistoryEntry } from "@/bindings";
 import { useSearch } from "@/hooks/useSearch";
-import type { SearchHistoryEntry, SearchType } from "@/ipc/search";
+import { useSearchHistory } from "@/hooks/useSearchHistory";
+import { DEFAULT_SEARCH_UI_STATE, useSearchUiStore } from "@/hooks/useSearchUiStore";
+import type { SearchType } from "@/ipc/search";
+import { SearchHistoryOverlay } from "./SearchHistoryOverlay";
 
 export interface SearchBarProps {
   /** Workspace alias of the file to search, or `null` if none is selected. */
@@ -32,57 +37,105 @@ function fromDatetimeLocalValue(value: string): number | null {
 }
 
 /**
- * Logical-expression/regex search bar (FR-021–FR-025): runs
- * `search_with_context` for the active file, and shows live results and
- * search history (FR-024). Supports restricting results to a time range
- * (FR-012/FR-013) when the file has a detected timestamp format.
+ * Logical-expression/regex search bar (FR-021–FR-025): runs `search` for the
+ * active file (results are shown by `SearchResultsPanel`). The query,
+ * search type, and time range are bound to `useSearchUiStore` so they survive
+ * the results panel being closed (FR-008). Supports restricting results to a
+ * time range (FR-012/FR-013) when the file has a detected timestamp format.
  */
+const SUGGESTIONS_LIST_ID = "search-history-suggestions";
+
 export function SearchBar({ alias, hasTimestampFormat }: SearchBarProps) {
-  const [query, setQuery] = useState("");
-  const [searchType, setSearchType] = useState<SearchType>("logical");
-  const [timeFrom, setTimeFrom] = useState("");
-  const [timeTo, setTimeTo] = useState("");
-  const { results, truncated, history, isSearching, error, runSearch } =
-    useSearch(alias);
+  const { query, searchType, timeFrom, timeTo } = useSearchUiStore(
+    (state) => state.slices[alias ?? ""] ?? DEFAULT_SEARCH_UI_STATE,
+  );
+  const { isSearching, error, runSearch } = useSearch(alias);
+  const { history, suggestions } = useSearchHistory();
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  const suggestionEntries = suggestions(query);
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     void runSearch(
       query,
       searchType,
-      hasTimestampFormat ? fromDatetimeLocalValue(timeFrom) : null,
-      hasTimestampFormat ? fromDatetimeLocalValue(timeTo) : null,
+      hasTimestampFormat ? timeFrom : null,
+      hasTimestampFormat ? timeTo : null,
     );
   }
 
-  function handleHistorySelect(entry: SearchHistoryEntry) {
-    setQuery(entry.query);
-    setSearchType(entry.search_type);
-    setTimeFrom(
-      entry.time_from !== null ? toDatetimeLocalValue(entry.time_from) : "",
-    );
-    setTimeTo(entry.time_to !== null ? toDatetimeLocalValue(entry.time_to) : "");
+  /** Applies a history entry (FR-018) and immediately re-runs the search. */
+  function applyHistoryEntry(entry: SearchHistoryEntry) {
+    if (!alias) return;
+    useSearchUiStore.getState().applyHistoryEntry(alias, entry);
+    setShowSuggestions(false);
+    setHistoryOpen(false);
     void runSearch(entry.query, entry.search_type, entry.time_from, entry.time_to);
   }
 
   return (
     <div className="flex flex-col gap-2 border-b p-2">
       <form onSubmit={handleSubmit} className="flex items-center gap-2">
-        <input
-          className="flex-1 rounded border px-2 py-1 text-sm"
-          placeholder={
-            searchType === "logical" ? '"error" AND "db"' : "err.*"
-          }
-          aria-label="Search query"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          disabled={!alias}
-        />
+        <div className="relative flex-1">
+          <input
+            className="w-full rounded border px-2 py-1 text-sm"
+            placeholder={
+              searchType === "logical" ? '"error" AND "db"' : "err.*"
+            }
+            aria-label="Search query"
+            role="combobox"
+            aria-expanded={showSuggestions}
+            aria-controls={SUGGESTIONS_LIST_ID}
+            aria-autocomplete="list"
+            value={query}
+            onChange={(event) =>
+              alias && useSearchUiStore.getState().setQuery(alias, event.target.value)
+            }
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={() => setShowSuggestions(false)}
+            disabled={!alias}
+          />
+          {showSuggestions && (
+            <ul
+              role="listbox"
+              id={SUGGESTIONS_LIST_ID}
+              className="absolute top-full left-0 z-10 mt-1 flex max-h-48 w-full flex-col gap-1 overflow-auto rounded border bg-background p-1 text-xs shadow-lg"
+            >
+              {suggestionEntries.length === 0 ? (
+                <li className="px-2 py-1 text-muted-foreground">
+                  No recent searches yet.
+                </li>
+              ) : (
+                suggestionEntries.map((entry) => (
+                  <li key={entry.id}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={false}
+                      className="w-full truncate rounded px-2 py-1 text-left font-mono hover:bg-accent"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => applyHistoryEntry(entry)}
+                    >
+                      {entry.query}
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+          )}
+        </div>
         <select
           aria-label="Search type"
           className="rounded border px-2 py-1 text-sm"
           value={searchType}
-          onChange={(event) => setSearchType(event.target.value as SearchType)}
+          onChange={(event) =>
+            alias &&
+            useSearchUiStore
+              .getState()
+              .setSearchType(alias, event.target.value as SearchType)
+          }
           disabled={!alias}
         >
           <option value="logical">Logical</option>
@@ -95,112 +148,81 @@ export function SearchBar({ alias, hasTimestampFormat }: SearchBarProps) {
         >
           Search
         </button>
+        <button
+          type="button"
+          aria-label="Search history"
+          className="rounded p-1 hover:bg-accent disabled:opacity-50"
+          onClick={() => setHistoryOpen(true)}
+          disabled={!alias}
+        >
+          <Clock size={16} />
+        </button>
       </form>
 
       {hasTimestampFormat && (
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <label className="flex items-center gap-1">
-          From
-          <input
-            type="datetime-local"
-            aria-label="Time range from"
-            className="rounded border px-2 py-1"
-            value={timeFrom}
-            onChange={(event) => setTimeFrom(event.target.value)}
-            disabled={!alias}
-          />
-        </label>
-        <label className="flex items-center gap-1">
-          To
-          <input
-            type="datetime-local"
-            aria-label="Time range to"
-            className="rounded border px-2 py-1"
-            value={timeTo}
-            onChange={(event) => setTimeTo(event.target.value)}
-            disabled={!alias}
-          />
-        </label>
-        {(timeFrom !== "" || timeTo !== "") && (
-          <button
-            type="button"
-            className="hover:underline"
-            onClick={() => {
-              setTimeFrom("");
-              setTimeTo("");
-            }}
-          >
-            Clear
-          </button>
-        )}
-      </div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <label className="flex items-center gap-1">
+            From
+            <input
+              type="datetime-local"
+              aria-label="Time range from"
+              className="rounded border px-2 py-1"
+              value={timeFrom !== null ? toDatetimeLocalValue(timeFrom) : ""}
+              onChange={(event) =>
+                alias &&
+                useSearchUiStore
+                  .getState()
+                  .setTimeRange(
+                    alias,
+                    fromDatetimeLocalValue(event.target.value),
+                    timeTo,
+                  )
+              }
+              disabled={!alias}
+            />
+          </label>
+          <label className="flex items-center gap-1">
+            To
+            <input
+              type="datetime-local"
+              aria-label="Time range to"
+              className="rounded border px-2 py-1"
+              value={timeTo !== null ? toDatetimeLocalValue(timeTo) : ""}
+              onChange={(event) =>
+                alias &&
+                useSearchUiStore
+                  .getState()
+                  .setTimeRange(
+                    alias,
+                    timeFrom,
+                    fromDatetimeLocalValue(event.target.value),
+                  )
+              }
+              disabled={!alias}
+            />
+          </label>
+          {(timeFrom !== null || timeTo !== null) && (
+            <button
+              type="button"
+              className="hover:underline"
+              onClick={() =>
+                alias && useSearchUiStore.getState().setTimeRange(alias, null, null)
+              }
+            >
+              Clear
+            </button>
+          )}
+        </div>
       )}
 
       {error && <p className="text-xs text-destructive">{error}</p>}
 
-      {results.length > 0 && (
-        <div className="max-h-48 overflow-auto text-sm">
-          {truncated && (
-            <p className="text-xs text-muted-foreground">
-              Showing the first {results.length} matches.
-            </p>
-          )}
-          <ul className="flex flex-col gap-2">
-            {results.map((match) => (
-              <li key={match.line_index} className="font-mono text-xs">
-                {match.before.map((line) => (
-                  <div
-                    key={line.line_index}
-                    className="text-muted-foreground"
-                  >
-                    {line.line_index}: {line.content}
-                  </div>
-                ))}
-                <div className="bg-accent">
-                  {match.match.line_index}: {match.match.content}
-                </div>
-                {match.after.map((line) => (
-                  <div
-                    key={line.line_index}
-                    className="text-muted-foreground"
-                  >
-                    {line.line_index}: {line.content}
-                  </div>
-                ))}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {history.length > 0 && (
-        <div className="text-xs text-muted-foreground">
-          <p className="font-semibold">History</p>
-          <ul className="flex flex-col gap-1">
-            {history.map((entry) => (
-              <li key={entry.id}>
-                <button
-                  type="button"
-                  className="hover:underline"
-                  onClick={() => handleHistorySelect(entry)}
-                >
-                  {entry.query} ({entry.search_type})
-                  {(entry.time_from !== null || entry.time_to !== null) &&
-                    ` [${
-                      entry.time_from !== null
-                        ? toDatetimeLocalValue(entry.time_from)
-                        : "…"
-                    } – ${
-                      entry.time_to !== null
-                        ? toDatetimeLocalValue(entry.time_to)
-                        : "…"
-                    }]`}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <SearchHistoryOverlay
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        entries={history}
+        onSelect={applyHistoryEntry}
+      />
     </div>
   );
 }

@@ -163,7 +163,7 @@ fn startup_bind_failure_is_surfaced_and_recoverable_via_configure() {
     let mcp_state = app.state::<McpServerState>();
 
     let status = get_mcp_status(state.clone(), mcp_state.clone()).unwrap();
-    assert_eq!(status.configured, true);
+    assert!(status.configured);
     assert_eq!(status.port, Some(port));
     assert!(status.error.is_some());
 
