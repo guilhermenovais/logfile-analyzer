@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Generated tauri-specta bindings
+src/bindings
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -1,0 +1,53 @@
+use serde::Serialize;
+
+/// Shared error type returned by every fallible Tauri command and MCP tool
+/// (Principle I). Serialized to the frontend as `{ "kind": ..., "message"?: ... }`.
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(tag = "kind", content = "message")]
+pub enum AppError {
+    NoActiveWorkspace,
+    WorkspaceNotFound,
+    FileAlreadyInWorkspace,
+    AliasCollision,
+    WorkspaceAliasInUse,
+    FileNotFound,
+    FileUnavailable,
+    LineOutOfRange,
+    InvalidQuery,
+    TimeRangeUnavailable,
+    Io(String),
+}
+
+pub type Result<T> = std::result::Result<T, AppError>;
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AppError::NoActiveWorkspace => write!(f, "no active workspace"),
+            AppError::WorkspaceNotFound => write!(f, "workspace not found"),
+            AppError::FileAlreadyInWorkspace => write!(f, "file already in workspace"),
+            AppError::AliasCollision => write!(f, "alias already in use in this workspace"),
+            AppError::WorkspaceAliasInUse => write!(f, "workspace alias already in use"),
+            AppError::FileNotFound => write!(f, "file not found"),
+            AppError::FileUnavailable => write!(f, "file unavailable"),
+            AppError::LineOutOfRange => write!(f, "line index out of range"),
+            AppError::InvalidQuery => write!(f, "invalid query"),
+            AppError::TimeRangeUnavailable => write!(f, "time range search unavailable"),
+            AppError::Io(msg) => write!(f, "io error: {msg}"),
+        }
+    }
+}
+
+impl std::error::Error for AppError {}
+
+impl From<rusqlite::Error> for AppError {
+    fn from(err: rusqlite::Error) -> Self {
+        AppError::Io(err.to_string())
+    }
+}
+
+impl From<std::io::Error> for AppError {
+    fn from(err: std::io::Error) -> Self {
+        AppError::Io(err.to_string())
+    }
+}
