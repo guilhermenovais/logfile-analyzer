@@ -80,9 +80,12 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             let db = persistence::schema::open(&data_dir.join("workspace.sqlite3"))?;
-            let active_workspace = persistence::repo::workspace::get_or_create_draft(&db)?;
+            let active_workspace = workspace::resolve_startup_workspace(&db)?;
             let configured_port = persistence::repo::settings::get_mcp_port(&db)?;
+            let entries =
+                persistence::repo::log_file_entry::list_for_workspace(&db, active_workspace.id)?;
             let state = Arc::new(AppState::new(db, active_workspace.id));
+            workspace::load_workspace_files(&state, entries);
 
             let mcp_status = match configured_port {
                 Some(port) => match mcp::server::start(state.clone(), port) {
@@ -105,6 +108,15 @@ pub fn run() {
                     if let McpRuntimeStatus::Running(handle) = &*mcp_state.0.lock().unwrap() {
                         handle.shutdown();
                     }
+                }
+
+                if let Some(state) = app_handle.try_state::<Arc<AppState>>() {
+                    let active_workspace_id = *state.active_workspace_id.lock().unwrap();
+                    let db = state.db.lock().unwrap();
+                    let _ = persistence::repo::settings::set_last_active_workspace(
+                        &db,
+                        active_workspace_id,
+                    );
                 }
             }
         });

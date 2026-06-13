@@ -1,6 +1,6 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan at
-`specs/002-mcp-port-configuration/plan.md` (and its sibling `research.md`,
-`data-model.md`, `contracts/`, and `quickstart.md`).
+`specs/003-fix-workspace-file-persistence/plan.md` (and its sibling
+`research.md`, `data-model.md`, and `quickstart.md`).
 <!-- SPECKIT END -->

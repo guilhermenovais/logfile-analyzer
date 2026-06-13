@@ -11,6 +11,7 @@ use std::sync::Arc;
 use logfile_analyzer_lib::commands::{files, workspace};
 use logfile_analyzer_lib::error::AppError;
 use logfile_analyzer_lib::persistence::repo::workspace as workspace_repo;
+use logfile_analyzer_lib::persistence::repo::{log_file_entry, settings};
 use logfile_analyzer_lib::persistence::schema;
 use logfile_analyzer_lib::state::AppState;
 
@@ -156,4 +157,289 @@ fn open_workspace_unknown_id_is_workspace_not_found() {
 
     let err = workspace::open_workspace(state.clone(), 999_999).unwrap_err();
     assert!(matches!(err, AppError::WorkspaceNotFound));
+}
+
+/// Builds a fresh `AppState` with empty `state.files`, mirroring `setup()`
+/// immediately after `AppState::new`.
+fn fresh_state(active_workspace_id: i64) -> Arc<AppState> {
+    let conn = Connection::open_in_memory().unwrap();
+    schema::migrate(&conn).unwrap();
+    Arc::new(AppState::new(conn, active_workspace_id))
+}
+
+fn test_conn() -> Connection {
+    let conn = Connection::open_in_memory().unwrap();
+    schema::migrate(&conn).unwrap();
+    conn
+}
+
+#[test]
+fn resolve_startup_workspace_returns_last_active_saved_workspace() {
+    let conn = test_conn();
+    let draft = workspace_repo::get_or_create_draft(&conn).unwrap();
+    let saved = workspace_repo::save(&conn, draft.id, "incident-42").unwrap();
+    workspace_repo::get_or_create_draft(&conn).unwrap();
+
+    settings::set_last_active_workspace(&conn, saved.id).unwrap();
+
+    let resolved = workspace::resolve_startup_workspace(&conn).unwrap();
+    assert_eq!(resolved.id, saved.id);
+    assert_eq!(resolved.alias, Some("incident-42".to_string()));
+}
+
+#[test]
+fn resolve_startup_workspace_returns_last_active_draft_workspace() {
+    let conn = test_conn();
+    let draft = workspace_repo::get_or_create_draft(&conn).unwrap();
+
+    settings::set_last_active_workspace(&conn, draft.id).unwrap();
+
+    let resolved = workspace::resolve_startup_workspace(&conn).unwrap();
+    assert_eq!(resolved.id, draft.id);
+    assert!(resolved.is_draft);
+}
+
+#[test]
+fn resolve_startup_workspace_falls_back_to_draft_when_last_active_deleted() {
+    let conn = test_conn();
+    let draft = workspace_repo::get_or_create_draft(&conn).unwrap();
+    let saved = workspace_repo::save(&conn, draft.id, "incident-42").unwrap();
+    let new_draft = workspace_repo::get_or_create_draft(&conn).unwrap();
+
+    settings::set_last_active_workspace(&conn, saved.id).unwrap();
+    workspace_repo::delete(&conn, saved.id).unwrap();
+
+    let resolved = workspace::resolve_startup_workspace(&conn).unwrap();
+    assert_eq!(resolved.id, new_draft.id);
+    assert!(resolved.is_draft);
+}
+
+#[test]
+fn resolve_startup_workspace_falls_back_to_draft_when_no_record_exists() {
+    let conn = test_conn();
+    let draft = workspace_repo::get_or_create_draft(&conn).unwrap();
+
+    let resolved = workspace::resolve_startup_workspace(&conn).unwrap();
+    assert_eq!(resolved.id, draft.id);
+    assert!(resolved.is_draft);
+}
+
+#[test]
+fn startup_restore_of_saved_workspace_marks_one_missing_file_unavailable() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+
+    let present_path = write_temp_file("present", b"line one\n");
+    let missing_path = write_temp_file("missing", b"line two\n");
+    files::add_file(
+        state.clone(),
+        present_path.to_string_lossy().into_owned(),
+        Some("present".into()),
+    )
+    .unwrap();
+    files::add_file(
+        state.clone(),
+        missing_path.to_string_lossy().into_owned(),
+        Some("missing".into()),
+    )
+    .unwrap();
+
+    let saved = workspace::save_workspace(state.clone(), "incident-42".into()).unwrap();
+
+    {
+        let db = state.db.lock().unwrap();
+        settings::set_last_active_workspace(&db, saved.id.into()).unwrap();
+    }
+
+    std::fs::remove_file(&missing_path).unwrap();
+
+    let (resolved, entries) = {
+        let db = state.db.lock().unwrap();
+        let resolved = workspace::resolve_startup_workspace(&db).unwrap();
+        let entries = log_file_entry::list_for_workspace(&db, resolved.id).unwrap();
+        (resolved, entries)
+    };
+
+    assert_eq!(resolved.alias, Some("incident-42".to_string()));
+
+    let startup_state = fresh_state(resolved.id);
+    let summaries = workspace::load_workspace_files(&startup_state, entries);
+
+    let present = summaries.iter().find(|f| f.alias == "present").unwrap();
+    assert!(present.available);
+    let missing = summaries.iter().find(|f| f.alias == "missing").unwrap();
+    assert!(!missing.available);
+}
+
+#[test]
+fn startup_restore_of_saved_workspace_handles_all_files_missing() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+
+    let path_a = write_temp_file("a", b"line one\n");
+    let path_b = write_temp_file("b", b"line two\n");
+    files::add_file(
+        state.clone(),
+        path_a.to_string_lossy().into_owned(),
+        Some("a".into()),
+    )
+    .unwrap();
+    files::add_file(
+        state.clone(),
+        path_b.to_string_lossy().into_owned(),
+        Some("b".into()),
+    )
+    .unwrap();
+
+    let saved = workspace::save_workspace(state.clone(), "incident-42".into()).unwrap();
+
+    {
+        let db = state.db.lock().unwrap();
+        settings::set_last_active_workspace(&db, saved.id.into()).unwrap();
+    }
+
+    std::fs::remove_file(&path_a).unwrap();
+    std::fs::remove_file(&path_b).unwrap();
+
+    let (resolved, entries) = {
+        let db = state.db.lock().unwrap();
+        let resolved = workspace::resolve_startup_workspace(&db).unwrap();
+        let entries = log_file_entry::list_for_workspace(&db, resolved.id).unwrap();
+        (resolved, entries)
+    };
+
+    assert_eq!(resolved.alias, Some("incident-42".to_string()));
+
+    let startup_state = fresh_state(resolved.id);
+    let summaries = workspace::load_workspace_files(&startup_state, entries);
+
+    assert_eq!(summaries.len(), 2);
+    assert!(summaries.iter().all(|f| !f.available));
+}
+
+#[test]
+fn resolve_startup_workspace_is_stable_across_repeated_round_trips() {
+    let conn = test_conn();
+    let draft = workspace_repo::get_or_create_draft(&conn).unwrap();
+    let saved = workspace_repo::save(&conn, draft.id, "incident-42").unwrap();
+
+    for _ in 0..5 {
+        settings::set_last_active_workspace(&conn, saved.id).unwrap();
+        let resolved = workspace::resolve_startup_workspace(&conn).unwrap();
+        assert_eq!(resolved.id, saved.id);
+        assert_eq!(resolved.alias, Some("incident-42".to_string()));
+    }
+}
+
+#[test]
+fn load_workspace_files_loads_all_present_files() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+
+    let path_a = write_temp_file("a", b"line one\n");
+    let path_b = write_temp_file("b", b"line two\n");
+    files::add_file(
+        state.clone(),
+        path_a.to_string_lossy().into_owned(),
+        Some("a".into()),
+    )
+    .unwrap();
+    files::add_file(
+        state.clone(),
+        path_b.to_string_lossy().into_owned(),
+        Some("b".into()),
+    )
+    .unwrap();
+
+    let workspace_id = *state.active_workspace_id.lock().unwrap();
+    let entries = {
+        let db = state.db.lock().unwrap();
+        log_file_entry::list_for_workspace(&db, workspace_id).unwrap()
+    };
+
+    let startup_state = fresh_state(workspace_id);
+    let summaries = workspace::load_workspace_files(&startup_state, entries);
+
+    assert_eq!(summaries.len(), 2);
+    assert!(summaries.iter().all(|f| f.available));
+    assert!(startup_state.files.read().unwrap().contains_key("a"));
+    assert!(startup_state.files.read().unwrap().contains_key("b"));
+}
+
+#[test]
+fn load_workspace_files_marks_one_missing_file_unavailable() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+
+    let present_path = write_temp_file("present", b"line one\n");
+    let missing_path = write_temp_file("missing", b"line two\n");
+    files::add_file(
+        state.clone(),
+        present_path.to_string_lossy().into_owned(),
+        Some("present".into()),
+    )
+    .unwrap();
+    files::add_file(
+        state.clone(),
+        missing_path.to_string_lossy().into_owned(),
+        Some("missing".into()),
+    )
+    .unwrap();
+
+    let workspace_id = *state.active_workspace_id.lock().unwrap();
+    let entries = {
+        let db = state.db.lock().unwrap();
+        log_file_entry::list_for_workspace(&db, workspace_id).unwrap()
+    };
+
+    std::fs::remove_file(&missing_path).unwrap();
+
+    let startup_state = fresh_state(workspace_id);
+    let summaries = workspace::load_workspace_files(&startup_state, entries);
+
+    let present = summaries.iter().find(|f| f.alias == "present").unwrap();
+    assert!(present.available);
+    let missing = summaries.iter().find(|f| f.alias == "missing").unwrap();
+    assert!(!missing.available);
+
+    let files = startup_state.files.read().unwrap();
+    assert!(files.contains_key("present"));
+    assert!(!files.contains_key("missing"));
+}
+
+#[test]
+fn load_workspace_files_handles_all_files_missing() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+
+    let path_a = write_temp_file("a", b"line one\n");
+    let path_b = write_temp_file("b", b"line two\n");
+    files::add_file(
+        state.clone(),
+        path_a.to_string_lossy().into_owned(),
+        Some("a".into()),
+    )
+    .unwrap();
+    files::add_file(
+        state.clone(),
+        path_b.to_string_lossy().into_owned(),
+        Some("b".into()),
+    )
+    .unwrap();
+
+    let workspace_id = *state.active_workspace_id.lock().unwrap();
+    let entries = {
+        let db = state.db.lock().unwrap();
+        log_file_entry::list_for_workspace(&db, workspace_id).unwrap()
+    };
+
+    std::fs::remove_file(&path_a).unwrap();
+    std::fs::remove_file(&path_b).unwrap();
+
+    let startup_state = fresh_state(workspace_id);
+    let summaries = workspace::load_workspace_files(&startup_state, entries);
+
+    assert_eq!(summaries.len(), 2);
+    assert!(summaries.iter().all(|f| !f.available));
+    assert!(startup_state.files.read().unwrap().is_empty());
 }

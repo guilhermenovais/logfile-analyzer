@@ -8,12 +8,70 @@ use std::sync::{Arc, RwLock};
 
 use tauri::State;
 
+use rusqlite::Connection;
+
 use crate::commands::files::{index_and_detect_timestamps, list_file_summaries};
 use crate::commands::types::{LogFileSummary, WorkspaceDirty, WorkspaceSummary};
 use crate::error::{AppError, Result};
 use crate::logfile::mmap_index;
-use crate::persistence::repo::{log_file_entry, workspace};
+use crate::persistence::repo::log_file_entry::LogFileEntry;
+use crate::persistence::repo::{log_file_entry, settings, workspace};
 use crate::state::{AppState, FileIndex, FileRuntime};
+
+/// Resolves which workspace should be restored at startup (research.md §3):
+/// the workspace recorded as last active, if it still exists, otherwise the
+/// draft (FR-004/FR-006/FR-009).
+pub fn resolve_startup_workspace(db: &Connection) -> Result<workspace::Workspace> {
+    if let Some(id) = settings::get_last_active_workspace(db)? {
+        if let Some(ws) = workspace::get(db, id)? {
+            return Ok(ws);
+        }
+    }
+    workspace::get_or_create_draft(db)
+}
+
+/// Opens each entry's mmap, registers a [`FileRuntime`] in `state.files` for
+/// the ones that succeed, spawns background indexing for them, and returns a
+/// [`LogFileSummary`] per entry with `available` reflecting whether the mmap
+/// opened (FR-001/FR-002/FR-008). Shared by `open_workspace` and `setup()` so
+/// startup restore uses the exact same per-file availability logic as a
+/// manual workspace open (research.md §4, data-model.md "Session file load").
+pub fn load_workspace_files(
+    state: &Arc<AppState>,
+    entries: Vec<LogFileEntry>,
+) -> Vec<LogFileSummary> {
+    let mut files = state.files.write().unwrap();
+
+    let mut summaries = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let available = match mmap_index::open(Path::new(&entry.path)) {
+            Ok(mmap) => {
+                let runtime = Arc::new(FileRuntime {
+                    file_id: entry.id,
+                    mmap,
+                    index: RwLock::new(FileIndex::default()),
+                });
+                files.insert(entry.alias.clone(), runtime.clone());
+                let app_state = state.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    index_and_detect_timestamps(&app_state, &runtime);
+                });
+                true
+            }
+            Err(_) => false,
+        };
+
+        summaries.push(LogFileSummary {
+            alias: entry.alias,
+            path: entry.path,
+            available,
+            has_timestamp_format: entry.has_timestamp_format,
+            indexing_complete: false,
+        });
+    }
+
+    summaries
+}
 
 /// Deletes the current draft (if any) and creates a fresh empty one,
 /// returning it as the new active workspace. Shared by `create_workspace`
@@ -146,38 +204,9 @@ pub fn open_workspace(state: State<'_, Arc<AppState>>, id: i32) -> Result<Worksp
     };
 
     *state.active_workspace_id.lock().unwrap() = ws.id;
+    state.files.write().unwrap().clear();
 
-    let mut files = state.files.write().unwrap();
-    files.clear();
-
-    let mut summaries = Vec::with_capacity(entries.len());
-    for entry in entries {
-        let available = match mmap_index::open(Path::new(&entry.path)) {
-            Ok(mmap) => {
-                let runtime = Arc::new(FileRuntime {
-                    file_id: entry.id,
-                    mmap,
-                    index: RwLock::new(FileIndex::default()),
-                });
-                files.insert(entry.alias.clone(), runtime.clone());
-                let app_state = state.inner().clone();
-                tauri::async_runtime::spawn_blocking(move || {
-                    index_and_detect_timestamps(&app_state, &runtime);
-                });
-                true
-            }
-            Err(_) => false,
-        };
-
-        summaries.push(LogFileSummary {
-            alias: entry.alias,
-            path: entry.path,
-            available,
-            has_timestamp_format: entry.has_timestamp_format,
-            indexing_complete: false,
-        });
-    }
-    drop(files);
+    let summaries = load_workspace_files(state.inner(), entries);
 
     Ok(WorkspaceSummary {
         id: ws.id as i32,
