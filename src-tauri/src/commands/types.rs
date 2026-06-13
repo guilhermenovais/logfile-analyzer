@@ -110,6 +110,15 @@ pub struct HighlightEntry {
     pub origin: HighlightOrigin,
 }
 
+/// `McpStatusInfo` (contracts/ipc-commands.md): the persisted MCP server
+/// port configuration plus its current runtime status.
+#[derive(Debug, Clone, PartialEq, Serialize, specta::Type)]
+pub struct McpStatusInfo {
+    pub configured: bool,
+    pub port: Option<u16>,
+    pub error: Option<String>,
+}
+
 /// `SearchHistoryEntry` (contracts/ipc-commands.md, FR-024).
 ///
 /// `id`/`file_id` are `i32` and `time_from`/`time_to` are `f64`, not the

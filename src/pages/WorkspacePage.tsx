@@ -138,7 +138,7 @@ export function WorkspacePage() {
   }
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-full">
       <aside className="flex w-64 flex-col border-r">
         <div className="flex items-center justify-between gap-2 border-b p-2">
           <h2 className="truncate text-sm font-semibold">

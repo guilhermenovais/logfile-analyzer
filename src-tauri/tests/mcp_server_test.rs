@@ -106,7 +106,11 @@ fn mcp_server_serves_registered_tools_over_http() {
         b"start\nconnecting to db\nan error talking to db\nrecovered\nend\n",
     );
 
-    let handle = mcp::server::start(state).expect("failed to start MCP server");
+    let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let probe_port = probe.local_addr().unwrap().port();
+    drop(probe);
+
+    let handle = mcp::server::start(state, probe_port).expect("failed to start MCP server");
     let port = handle.port;
 
     tauri::async_runtime::block_on(async move {

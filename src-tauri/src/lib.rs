@@ -5,13 +5,13 @@ pub mod mcp;
 pub mod persistence;
 pub mod state;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tauri::Manager;
 use tauri_specta::{collect_commands, Builder};
 
-use commands::{files, highlights, search, viewing, workspace};
-use mcp::server::McpServerHandle;
+use commands::{files, highlights, search, settings, viewing, workspace};
+use mcp::server::{McpRuntimeStatus, McpServerState};
 use state::AppState;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -48,6 +48,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         highlights::clear_highlight,
         highlights::set_label,
         highlights::list_highlights,
+        settings::get_mcp_status,
+        settings::configure_mcp_port,
     ])
 }
 
@@ -69,6 +71,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(specta_builder.invoke_handler())
         .setup(move |app| {
             specta_builder.mount_events(app);
@@ -77,12 +80,19 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir)?;
             let db = persistence::schema::open(&data_dir.join("workspace.sqlite3"))?;
             let active_workspace = persistence::repo::workspace::get_or_create_draft(&db)?;
+            let configured_port = persistence::repo::settings::get_mcp_port(&db)?;
             let state = Arc::new(AppState::new(db, active_workspace.id));
 
-            let mcp_handle = mcp::server::start(state.clone())?;
+            let mcp_status = match configured_port {
+                Some(port) => match mcp::server::start(state.clone(), port) {
+                    Ok(handle) => McpRuntimeStatus::Running(handle),
+                    Err(err) => McpRuntimeStatus::Failed(err.to_string()),
+                },
+                None => McpRuntimeStatus::Failed("not configured".into()),
+            };
 
             app.manage(state);
-            app.manage(mcp_handle);
+            app.manage(McpServerState(Mutex::new(mcp_status)));
 
             Ok(())
         })
@@ -90,8 +100,10 @@ pub fn run() {
         .expect("error while running tauri application")
         .run(|app_handle, event| {
             if let tauri::RunEvent::Exit = event {
-                if let Some(handle) = app_handle.try_state::<McpServerHandle>() {
-                    handle.shutdown();
+                if let Some(mcp_state) = app_handle.try_state::<McpServerState>() {
+                    if let McpRuntimeStatus::Running(handle) = &*mcp_state.0.lock().unwrap() {
+                        handle.shutdown();
+                    }
                 }
             }
         });

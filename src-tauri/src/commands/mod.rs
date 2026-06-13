@@ -3,6 +3,7 @@
 pub mod files;
 pub mod highlights;
 pub mod search;
+pub mod settings;
 pub mod types;
 pub mod viewing;
 pub mod workspace;

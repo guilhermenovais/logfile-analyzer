@@ -3,7 +3,7 @@
 //! `/mcp`, and shuts down when [`McpServerHandle::shutdown`] is called (tied
 //! to the Tauri app lifecycle in T014).
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
@@ -17,7 +17,6 @@ use super::tools::LogAnalyzerMcpServer;
 /// Handle to the running MCP server, owned by the Tauri app. Call
 /// [`shutdown`](Self::shutdown) on app exit to stop accepting requests.
 pub struct McpServerHandle {
-    #[allow(dead_code)] // surfaced to the UI from T038 onwards
     pub port: u16,
     cancellation_token: CancellationToken,
 }
@@ -28,9 +27,20 @@ impl McpServerHandle {
     }
 }
 
-/// Binds the MCP Streamable HTTP service to `127.0.0.1:0` (an OS-assigned
-/// port) and spawns its accept loop on the Tauri async runtime.
-pub fn start(state: Arc<AppState>) -> std::io::Result<McpServerHandle> {
+/// The MCP server's current runtime status (data-model.md "McpRuntimeStatus"):
+/// either bound and serving on a port, or failed to bind with a reason.
+pub enum McpRuntimeStatus {
+    Running(McpServerHandle),
+    Failed(String),
+}
+
+/// Tauri-managed state wrapping the current [`McpRuntimeStatus`]. Replaces
+/// the bare `McpServerHandle` previously managed directly.
+pub struct McpServerState(pub Mutex<McpRuntimeStatus>);
+
+/// Binds the MCP Streamable HTTP service to `127.0.0.1:{port}` and spawns its
+/// accept loop on the Tauri async runtime.
+pub fn start(state: Arc<AppState>, port: u16) -> std::io::Result<McpServerHandle> {
     let cancellation_token = CancellationToken::new();
 
     let service = StreamableHttpService::new(
@@ -41,7 +51,7 @@ pub fn start(state: Arc<AppState>) -> std::io::Result<McpServerHandle> {
     );
     let router = axum::Router::new().nest_service("/mcp", service);
 
-    let listener = tauri::async_runtime::block_on(TcpListener::bind("127.0.0.1:0"))?;
+    let listener = tauri::async_runtime::block_on(TcpListener::bind(("127.0.0.1", port)))?;
     let port = listener.local_addr()?.port();
 
     let shutdown_token = cancellation_token.clone();
