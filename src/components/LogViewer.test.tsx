@@ -4,8 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LogViewer } from "./LogViewer";
 import type { UseLogStreamResult } from "@/hooks/useLogStream";
 
-const { useLogStream } = vi.hoisted(() => ({
+const { useLogStream, scrollToIndex } = vi.hoisted(() => ({
   useLogStream: vi.fn(),
+  scrollToIndex: vi.fn(),
 }));
 
 vi.mock("@/hooks/useLogStream", () => ({ useLogStream }));
@@ -31,6 +32,7 @@ vi.mock("@tanstack/react-virtual", () => ({
     return {
       getVirtualItems: () => items,
       getTotalSize: () => count * size,
+      scrollToIndex,
     };
   },
 }));
@@ -48,6 +50,7 @@ function mockResult(overrides: Partial<UseLogStreamResult> = {}): UseLogStreamRe
 describe("LogViewer", () => {
   beforeEach(() => {
     useLogStream.mockReset();
+    scrollToIndex.mockReset();
   });
 
   it("renders streamed lines for the given alias", () => {
@@ -109,5 +112,90 @@ describe("LogViewer", () => {
 
     expect(toggle).toBeChecked();
     expect(line).toHaveStyle({ whiteSpace: "pre-wrap" });
+  });
+
+  it("marks lines in searchMatchLines with bg-search-match", () => {
+    useLogStream.mockReturnValue(
+      mockResult({
+        totalLines: 3,
+        lines: new Map([
+          [1, "first line"],
+          [2, "second line"],
+          [3, "third line"],
+        ]),
+      }),
+    );
+
+    render(<LogViewer alias="app" searchMatchLines={[1, 3]} />);
+
+    const firstRow = screen.getByText("first line").closest("div");
+    const secondRow = screen.getByText("second line").closest("div");
+    const thirdRow = screen.getByText("third line").closest("div");
+
+    expect(firstRow).toHaveClass("bg-search-match");
+    expect(secondRow).not.toHaveClass("bg-search-match");
+    expect(thirdRow).toHaveClass("bg-search-match");
+  });
+
+  it("combines bg-search-match with the existing star-highlight class", () => {
+    useLogStream.mockReturnValue(
+      mockResult({
+        totalLines: 1,
+        lines: new Map([[1, "first line"]]),
+      }),
+    );
+
+    render(
+      <LogViewer
+        alias="app"
+        searchMatchLines={[1]}
+        highlights={[{ line_index: 1, content: "first line", label: null, origin: "user" }]}
+      />,
+    );
+
+    const row = screen.getByText("first line").closest("div");
+    expect(row).toHaveClass("bg-accent");
+    expect(row).toHaveClass("ring-search-match");
+  });
+
+  it("scrolls to scrollToLine.lineIndex when its nonce changes", () => {
+    useLogStream.mockReturnValue(
+      mockResult({
+        totalLines: 5,
+        lines: new Map([
+          [1, "one"],
+          [2, "two"],
+          [3, "three"],
+          [4, "four"],
+          [5, "five"],
+        ]),
+      }),
+    );
+
+    const { rerender } = render(
+      <LogViewer alias="app" scrollToLine={{ lineIndex: 3, nonce: 1 }} />,
+    );
+
+    expect(scrollToIndex).toHaveBeenCalledWith(2, { align: "center" });
+
+    scrollToIndex.mockClear();
+
+    // Same lineIndex, new nonce: should scroll again.
+    rerender(<LogViewer alias="app" scrollToLine={{ lineIndex: 3, nonce: 2 }} />);
+
+    expect(scrollToIndex).toHaveBeenCalledWith(2, { align: "center" });
+  });
+
+  it("does not scroll when scrollToLine is null", () => {
+    useLogStream.mockReturnValue(
+      mockResult({
+        totalLines: 1,
+        lines: new Map([[1, "one"]]),
+      }),
+    );
+
+    render(<LogViewer alias="app" scrollToLine={null} />);
+
+    expect(scrollToIndex).not.toHaveBeenCalled();
   });
 });

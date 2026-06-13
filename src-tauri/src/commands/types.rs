@@ -75,9 +75,15 @@ pub struct SearchMatchEntry {
 }
 
 /// `SearchMatchBatch` streamed by `search` (contracts/ipc-commands.md).
+///
+/// `truncated` mirrors `SearchWithContextBatch::truncated`: `true` when more
+/// than `MAX_MATCH_BATCH` lines matched and `matches` was capped to the
+/// first `MAX_MATCH_BATCH` (Principle VI; spec.md Assumptions, "Showing the
+/// first N matches").
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct SearchMatchBatch {
     pub matches: Vec<SearchMatchEntry>,
+    pub truncated: bool,
 }
 
 /// A single match with its surrounding context, as streamed by
@@ -119,19 +125,19 @@ pub struct McpStatusInfo {
     pub error: Option<String>,
 }
 
-/// `SearchHistoryEntry` (contracts/ipc-commands.md, FR-024).
+/// `SearchHistoryEntry` (contracts/ipc-commands.md, FR-013/FR-024).
 ///
-/// `id`/`file_id` are `i32` and `time_from`/`time_to` are `f64`, not the
+/// `id`/`workspace_id` are `i32` and `time_from`/`time_to` are `f64`, not the
 /// SQLite `i64` columns: `specta`/`tauri-specta` forbid exporting 64-bit
 /// integers (precision loss as JS `number`), and these values never
 /// approach the limits of either type.
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct SearchHistoryEntry {
     pub id: i32,
-    pub file_id: i32,
+    pub workspace_id: i32,
     pub query: String,
     pub search_type: SearchType,
     pub time_from: Option<f64>,
     pub time_to: Option<f64>,
-    pub executed_at: String,
+    pub last_used_at: String,
 }

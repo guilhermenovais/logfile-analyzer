@@ -17,6 +17,16 @@ export interface LogViewerProps {
   highlightedOnly?: boolean;
   /** Called when the user toggles the highlight on `lineIndex` (FR-017). */
   onToggleHighlight?: (lineIndex: number, isHighlighted: boolean) => void;
+  /**
+   * 1-based line indices to mark with a gray `bg-search-match` background
+   * while the search results panel is open (FR-005/FR-007).
+   */
+  searchMatchLines?: number[];
+  /**
+   * When set, scrolls to `lineIndex` (1-based) centered in the viewport.
+   * `nonce` lets the parent re-request a scroll to the same line (research.md §6).
+   */
+  scrollToLine?: { lineIndex: number; nonce: number } | null;
 }
 
 /**
@@ -32,6 +42,8 @@ export function LogViewer({
   highlights = [],
   highlightedOnly = false,
   onToggleHighlight,
+  searchMatchLines,
+  scrollToLine,
 }: LogViewerProps) {
   const { lines, totalLines, loadRange } = useLogStream(alias);
   const [wrap, setWrap] = useState(false);
@@ -44,6 +56,11 @@ export function LogViewer({
     }
     return map;
   }, [highlights]);
+
+  const searchMatchSet = useMemo(
+    () => new Set(searchMatchLines ?? []),
+    [searchMatchLines],
+  );
 
   const virtualizer = useVirtualizer({
     count: totalLines,
@@ -68,6 +85,17 @@ export function LogViewer({
     // fresh array every render so isn't a stable dependency itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rangeKey, loadRange]);
+
+  useEffect(() => {
+    if (!scrollToLine) {
+      return;
+    }
+    virtualizer.scrollToIndex(scrollToLine.lineIndex - 1, {
+      align: "center",
+    });
+    // Only `nonce` should (re-)trigger the scroll (research.md §6).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollToLine?.nonce]);
 
   return (
     <div className="flex h-full flex-col">
@@ -138,6 +166,10 @@ export function LogViewer({
                   className={cn(
                     "flex items-start gap-2",
                     highlight && "bg-accent",
+                    searchMatchSet.has(lineIndex) &&
+                      (highlight
+                        ? "ring-2 ring-inset ring-search-match"
+                        : "bg-search-match"),
                   )}
                   style={{
                     position: "absolute",

@@ -78,40 +78,37 @@ pub fn search(
         );
     }
 
-    let mut batch = Vec::new();
-    for line_index in match_indices {
-        let content = line_bytes(&runtime.mmap, &index.line_offsets, line_index)
-            .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
-            .unwrap_or_default();
-        batch.push(SearchMatchEntry {
-            line_index: line_index as u32,
-            content,
-        });
-
-        if batch.len() >= MAX_MATCH_BATCH {
-            channel
-                .send(SearchMatchBatch {
-                    matches: std::mem::take(&mut batch),
-                })
-                .map_err(|err| AppError::Io(err.to_string()))?;
-        }
-    }
+    let truncated = match_indices.len() > MAX_MATCH_BATCH;
+    let matches = match_indices
+        .into_iter()
+        .take(MAX_MATCH_BATCH)
+        .map(|line_index| {
+            let content = line_bytes(&runtime.mmap, &index.line_offsets, line_index)
+                .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+                .unwrap_or_default();
+            SearchMatchEntry {
+                line_index: line_index as u32,
+                content,
+            }
+        })
+        .collect();
     drop(index);
 
     channel
-        .send(SearchMatchBatch { matches: batch })
+        .send(SearchMatchBatch { matches, truncated })
         .map_err(|err| AppError::Io(err.to_string()))?;
 
     let db = state.db.lock().unwrap();
+    let workspace_id = *state.active_workspace_id.lock().unwrap();
     search_history::record(
         &db,
-        runtime.file_id,
+        workspace_id,
         &query,
         search_type,
         time_from.map(|v| v as i64),
         time_to.map(|v| v as i64),
     )?;
-    workspace::touch(&db, *state.active_workspace_id.lock().unwrap())?;
+    workspace::touch(&db, workspace_id)?;
 
     Ok(())
 }
@@ -173,40 +170,38 @@ pub fn search_with_context(
         .map_err(|err| AppError::Io(err.to_string()))?;
 
     let db = state.db.lock().unwrap();
+    let workspace_id = *state.active_workspace_id.lock().unwrap();
     search_history::record(
         &db,
-        runtime.file_id,
+        workspace_id,
         &query,
         search_type,
         time_from.map(|v| v as i64),
         time_to.map(|v| v as i64),
     )?;
-    workspace::touch(&db, *state.active_workspace_id.lock().unwrap())?;
+    workspace::touch(&db, workspace_id)?;
 
     Ok(())
 }
 
-/// Returns the recorded search history for `alias`, most recent first
-/// (FR-024).
+/// Returns the active workspace's recorded search history, most recently
+/// used first (FR-013/FR-024).
 #[tauri::command]
 #[specta::specta]
-pub fn get_search_history(
-    state: State<'_, Arc<AppState>>,
-    alias: String,
-) -> Result<Vec<SearchHistoryEntry>> {
-    let runtime = resolve_runtime(&state, &alias)?;
+pub fn get_search_history(state: State<'_, Arc<AppState>>) -> Result<Vec<SearchHistoryEntry>> {
     let db = state.db.lock().unwrap();
-    let entries = search_history::list_for_file(&db, runtime.file_id)?;
+    let workspace_id = *state.active_workspace_id.lock().unwrap();
+    let entries = search_history::list_for_workspace(&db, workspace_id)?;
     Ok(entries
         .into_iter()
         .map(|entry| SearchHistoryEntry {
             id: entry.id as i32,
-            file_id: entry.file_id as i32,
+            workspace_id: entry.workspace_id as i32,
             query: entry.query,
             search_type: entry.search_type,
             time_from: entry.time_from.map(|v| v as f64),
             time_to: entry.time_to.map(|v| v as f64),
-            executed_at: entry.executed_at,
+            last_used_at: entry.last_used_at,
         })
         .collect())
 }

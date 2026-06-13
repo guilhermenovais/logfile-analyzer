@@ -155,11 +155,12 @@ fn add_ready_file_with_timestamps(state: &Arc<AppState>, alias: &str, contents: 
 fn search_logical_streams_matching_lines_and_records_history() {
     let app = mock_app();
     let state = app.state::<Arc<AppState>>();
-    let file_id = add_ready_file(
+    add_ready_file(
         &state,
         "app",
         b"start\nconnecting to db\nan error talking to db\nrecovered\nend\n",
     );
+    let workspace_id = *state.active_workspace_id.lock().unwrap();
 
     let (channel, rx) = collecting_channel::<SearchMatchBatch>();
     search::search(
@@ -177,11 +178,12 @@ fn search_logical_streams_matching_lines_and_records_history() {
     assert_eq!(batch.matches.len(), 1);
     assert_eq!(batch.matches[0].line_index, 3);
     assert_eq!(batch.matches[0].content, "an error talking to db");
+    assert!(!batch.truncated);
     assert!(rx.recv_timeout(Duration::from_millis(50)).is_err());
 
-    let history = search::get_search_history(state.clone(), "app".into()).unwrap();
+    let history = search::get_search_history(state.clone()).unwrap();
     assert_eq!(history.len(), 1);
-    assert_eq!(history[0].file_id as i64, file_id);
+    assert_eq!(history[0].workspace_id as i64, workspace_id);
     assert_eq!(history[0].query, r#""error" AND "db""#);
 }
 
@@ -207,6 +209,31 @@ fn search_regex_streams_matching_lines() {
     assert_eq!(batch.matches.len(), 2);
     assert_eq!(batch.matches[0].content, "two");
     assert_eq!(batch.matches[1].content, "three");
+    assert!(!batch.truncated);
+}
+
+#[test]
+fn search_caps_results_and_marks_truncated() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+    let contents: String = (0..600).map(|_| "match\n").collect();
+    add_ready_file(&state, "app", contents.as_bytes());
+
+    let (channel, rx) = collecting_channel::<SearchMatchBatch>();
+    search::search(
+        state.clone(),
+        "app".into(),
+        r#""match""#.into(),
+        SearchType::Logical,
+        None,
+        None,
+        channel,
+    )
+    .unwrap();
+
+    let batch = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(batch.matches.len(), 500);
+    assert!(batch.truncated);
 }
 
 #[test]
@@ -264,9 +291,51 @@ fn search_with_context_returns_surrounding_lines_and_records_history() {
     assert_eq!(m.after.len(), 1);
     assert_eq!(m.after[0].content, "recovered");
 
-    let history = search::get_search_history(state.clone(), "app".into()).unwrap();
+    let history = search::get_search_history(state.clone()).unwrap();
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].query, r#""error" AND "db""#);
+}
+
+/// FR-013: search history is scoped to the active workspace, not to the
+/// file that was searched — `get_search_history` returns entries recorded
+/// via any file in the workspace.
+#[test]
+fn get_search_history_returns_workspace_history_regardless_of_file() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+    add_ready_file(&state, "app", b"start\nan error talking to db\nend\n");
+    add_ready_file(&state, "other", b"one\ntwo\nthree\n");
+
+    let (channel, rx) = collecting_channel::<SearchMatchBatch>();
+    search::search(
+        state.clone(),
+        "app".into(),
+        r#""error" AND "db""#.into(),
+        SearchType::Logical,
+        None,
+        None,
+        channel,
+    )
+    .unwrap();
+    rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    let (channel, rx) = collecting_channel::<SearchMatchBatch>();
+    search::search(
+        state.clone(),
+        "other".into(),
+        r#""two""#.into(),
+        SearchType::Logical,
+        None,
+        None,
+        channel,
+    )
+    .unwrap();
+    rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    let history = search::get_search_history(state.clone()).unwrap();
+    assert_eq!(history.len(), 2);
+    assert_eq!(history[0].query, r#""two""#);
+    assert_eq!(history[1].query, r#""error" AND "db""#);
 }
 
 /// 2026-06-12T10:00:00Z and 10:01:00Z in epoch-ms (FR-012/FR-013).
@@ -301,7 +370,7 @@ fn search_time_range_filters_matches_by_timestamp() {
     assert_eq!(batch.matches.len(), 1);
     assert_eq!(batch.matches[0].line_index, 2);
 
-    let history = search::get_search_history(state.clone(), "app".into()).unwrap();
+    let history = search::get_search_history(state.clone()).unwrap();
     assert_eq!(history[0].time_from, Some(TS_10_01));
     assert_eq!(history[0].time_to, None);
 }
