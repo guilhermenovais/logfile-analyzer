@@ -36,6 +36,7 @@ specta = "2.0.0-rc.25"
 specta-typescript = "0.0.12"
 tauri-specta = { version = "2.0.0-rc.25", features = ["derive", "typescript"] }
 time = "=0.3.36"
+tauri-plugin-dialog = "2"
 
 [dev-dependencies]
 tauri = { version = "2", features = ["specta", "test"] }

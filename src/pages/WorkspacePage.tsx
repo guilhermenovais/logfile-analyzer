@@ -1,11 +1,13 @@
 import { useState, type FormEvent } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { FolderOpen } from "lucide-react";
 import { FeatureErrorBoundary } from "@/components/FeatureErrorBoundary";
 import { HighlightPanel } from "@/components/HighlightPanel";
 import { LogViewer } from "@/components/LogViewer";
 import { SavePromptDialog } from "@/components/SavePromptDialog";
 import { SearchBar } from "@/components/SearchBar";
 import { useHighlights } from "@/hooks/useHighlights";
+import { pickLogFile } from "@/ipc/dialog";
 import {
   useActiveWorkspace,
   useAddFile,
@@ -130,6 +132,13 @@ export function WorkspacePage() {
     );
   }
 
+  async function handleBrowseForFile() {
+    const selected = await pickLogFile();
+    if (selected) {
+      setPath(selected);
+    }
+  }
+
   function handleRemoveFile(fileAlias: string) {
     removeFile.mutate(fileAlias);
     if (selectedAlias === fileAlias) {
@@ -179,15 +188,26 @@ export function WorkspacePage() {
                   onSubmit={handleAddFile}
                   className="mt-3 flex flex-col gap-3"
                 >
-                  <label className="flex flex-col gap-1 text-xs">
-                    Path
-                    <input
-                      className="rounded border px-2 py-1 text-sm"
-                      value={path}
-                      onChange={(event) => setPath(event.target.value)}
-                      required
-                    />
-                  </label>
+                  <div className="flex flex-col gap-1 text-xs">
+                    <label htmlFor="add-file-path">Path</label>
+                    <div className="flex gap-1">
+                      <input
+                        id="add-file-path"
+                        className="flex-1 rounded border px-2 py-1 text-sm"
+                        value={path}
+                        onChange={(event) => setPath(event.target.value)}
+                        required
+                      />
+                      <button
+                        type="button"
+                        aria-label="Browse for file"
+                        onClick={handleBrowseForFile}
+                        className="rounded border px-2 py-1 hover:bg-accent"
+                      >
+                        <FolderOpen size={16} />
+                      </button>
+                    </div>
+                  </div>
                   <label className="flex flex-col gap-1 text-xs">
                     Alias (optional)
                     <input
