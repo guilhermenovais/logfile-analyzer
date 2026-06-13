@@ -1,6 +1,7 @@
 pub mod highlight;
 pub mod log_file_entry;
 pub mod search_history;
+pub mod settings;
 pub mod workspace;
 
 use rusqlite::ErrorCode;

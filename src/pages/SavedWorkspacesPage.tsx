@@ -15,7 +15,7 @@ export function SavedWorkspacesPage({ onClose }: SavedWorkspacesPageProps) {
   const openWorkspace = useOpenWorkspace();
 
   return (
-    <div className="flex h-screen flex-col p-4">
+    <div className="flex h-full flex-col p-4">
       <div className="flex items-center justify-between border-b pb-2">
         <h1 className="text-sm font-semibold">Saved workspaces</h1>
         <button

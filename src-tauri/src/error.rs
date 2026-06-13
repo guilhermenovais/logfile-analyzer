@@ -15,6 +15,8 @@ pub enum AppError {
     LineOutOfRange,
     InvalidQuery,
     TimeRangeUnavailable,
+    InvalidPort,
+    PortUnavailable(String),
     Io(String),
 }
 
@@ -33,6 +35,8 @@ impl std::fmt::Display for AppError {
             AppError::LineOutOfRange => write!(f, "line index out of range"),
             AppError::InvalidQuery => write!(f, "invalid query"),
             AppError::TimeRangeUnavailable => write!(f, "time range search unavailable"),
+            AppError::InvalidPort => write!(f, "invalid port"),
+            AppError::PortUnavailable(reason) => write!(f, "port unavailable: {reason}"),
             AppError::Io(msg) => write!(f, "io error: {msg}"),
         }
     }

@@ -33,6 +33,8 @@ fn map_error(err: AppError) -> Json<McpToolError> {
         AppError::LineOutOfRange => "line_out_of_range",
         AppError::InvalidQuery => "invalid_query",
         AppError::TimeRangeUnavailable => "time_range_unavailable",
+        AppError::InvalidPort => "invalid_port",
+        AppError::PortUnavailable(_) => "port_unavailable",
         AppError::Io(_) => "io_error",
     };
     Json(McpToolError {
