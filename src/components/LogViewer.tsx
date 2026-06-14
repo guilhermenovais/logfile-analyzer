@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { LogLine } from "@/components/LogLine";
+import { useLineSelectionKeyboard } from "@/hooks/useLineSelectionKeyboard";
+import { useLineSelectionStore } from "@/hooks/useLineSelectionStore";
 import { useLogStream } from "@/hooks/useLogStream";
 import type { HighlightEntry } from "@/ipc/highlights";
-import { cn } from "@/lib/utils";
 
 const LINE_HEIGHT_PX = 20;
 /** Extra rows fetched/rendered beyond the visible viewport. */
@@ -49,6 +51,25 @@ export function LogViewer({
   const [wrap, setWrap] = useState(false);
   const parentRef = useRef<HTMLDivElement>(null);
 
+  const selectedLine = useLineSelectionStore(
+    (state) => state.slices[alias]?.selectedLine ?? null,
+  );
+  const navNonce = useLineSelectionStore(
+    (state) => state.slices[alias]?.navNonce ?? 0,
+  );
+  const selectLine = (lineIndex: number) =>
+    useLineSelectionStore.getState().selectLine(alias, lineIndex);
+
+  const firstVisibleLineRef = useRef(1);
+
+  useLineSelectionKeyboard({
+    alias,
+    totalLines,
+    selectedLine,
+    firstVisibleLineRef,
+    getLineContent: (lineIndex) => lines.get(lineIndex),
+  });
+
   const highlightMap = useMemo(() => {
     const map = new Map<number, HighlightEntry>();
     for (const highlight of highlights) {
@@ -75,6 +96,13 @@ export function LogViewer({
     : "";
 
   useEffect(() => {
+    if (virtualItems.length > 0) {
+      firstVisibleLineRef.current = virtualItems[0].index + 1;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangeKey]);
+
+  useEffect(() => {
     if (virtualItems.length === 0) {
       return;
     }
@@ -97,6 +125,17 @@ export function LogViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollToLine?.nonce]);
 
+  useEffect(() => {
+    if (selectedLine === null) {
+      return;
+    }
+    virtualizer.scrollToIndex(selectedLine - 1, { align: "auto" });
+    // Only `navNonce` (arrow-key navigation, FR-011/FR-012) should
+    // (re-)trigger this scroll — click-based selection doesn't bump it
+    // because the clicked row is already visible (research.md §6).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navNonce]);
+
   return (
     <div className="flex h-full flex-col">
       <label className="flex items-center gap-2 border-b p-2 text-sm">
@@ -117,30 +156,17 @@ export function LogViewer({
             [...highlights]
               .sort((a, b) => a.line_index - b.line_index)
               .map((highlight) => (
-                <div
+                <LogLine
                   key={highlight.line_index}
-                  className="flex items-start gap-2 border-b p-1 bg-accent"
-                  style={{ whiteSpace: wrap ? "pre-wrap" : "pre" }}
-                >
-                  <button
-                    type="button"
-                    aria-label={`Remove highlight from line ${highlight.line_index}`}
-                    className="shrink-0"
-                    onClick={() =>
-                      onToggleHighlight?.(highlight.line_index, true)
-                    }
-                  >
-                    ★
-                  </button>
-                  <div>
-                    <div>{highlight.content}</div>
-                    {highlight.label && (
-                      <div className="text-xs text-muted-foreground">
-                        {highlight.label}
-                      </div>
-                    )}
-                  </div>
-                </div>
+                  lineIndex={highlight.line_index}
+                  content={highlight.content}
+                  wrap={wrap}
+                  highlight={highlight}
+                  isSelected={selectedLine === highlight.line_index}
+                  onToggleHighlight={onToggleHighlight}
+                  onSelect={selectLine}
+                  className="border-b p-1"
+                />
               ))
           )}
         </div>
@@ -160,17 +186,16 @@ export function LogViewer({
               const lineIndex = item.index + 1;
               const highlight = highlightMap.get(lineIndex);
               return (
-                <div
+                <LogLine
                   key={item.key}
-                  data-index={item.index}
-                  className={cn(
-                    "flex items-start gap-2",
-                    highlight && "bg-accent",
-                    searchMatchSet.has(lineIndex) &&
-                      (highlight
-                        ? "ring-2 ring-inset ring-search-match"
-                        : "bg-search-match"),
-                  )}
+                  lineIndex={lineIndex}
+                  content={lines.get(lineIndex) ?? ""}
+                  wrap={wrap}
+                  highlight={highlight}
+                  isSearchMatch={searchMatchSet.has(lineIndex)}
+                  isSelected={selectedLine === lineIndex}
+                  onToggleHighlight={onToggleHighlight}
+                  onSelect={selectLine}
                   style={{
                     position: "absolute",
                     top: 0,
@@ -179,28 +204,7 @@ export function LogViewer({
                     height: `${item.size}px`,
                     transform: `translateY(${item.start}px)`,
                   }}
-                >
-                  <button
-                    type="button"
-                    aria-label={
-                      highlight
-                        ? `Remove highlight from line ${lineIndex}`
-                        : `Highlight line ${lineIndex}`
-                    }
-                    className="shrink-0"
-                    onClick={() => onToggleHighlight?.(lineIndex, !!highlight)}
-                  >
-                    {highlight ? "★" : "☆"}
-                  </button>
-                  <span style={{ whiteSpace: wrap ? "pre-wrap" : "pre" }}>
-                    {lines.get(lineIndex) ?? ""}
-                  </span>
-                  {highlight?.label && (
-                    <span className="text-xs text-muted-foreground">
-                      {highlight.label}
-                    </span>
-                  )}
-                </div>
+                />
               );
             })}
           </div>

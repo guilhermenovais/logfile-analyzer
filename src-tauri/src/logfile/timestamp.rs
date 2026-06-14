@@ -21,6 +21,7 @@ const CANDIDATE_FORMATS: &[TimestampFormat] = &[
     TimestampFormat::Iso8601,
     TimestampFormat::EpochMillis,
     TimestampFormat::EpochSeconds,
+    TimestampFormat::SpaceSeparated,
 ];
 
 /// `NaiveDateTime` formats accepted for ISO-8601 timestamps without a
@@ -59,6 +60,19 @@ fn parse_epoch(
     token.parse::<i64>().ok().map(|v| v * to_millis)
 }
 
+/// Parses a `SpaceSeparated` timestamp (data-model.md "Parsing algorithm for
+/// SpaceSeparated"): the first two whitespace-separated tokens of `line` are
+/// `YYYY-MM-DD` and `HH:MM:SS[.fff]` or `HH:MM:SS[,fff]`.
+fn parse_space_separated(line: &str) -> Option<i64> {
+    let mut tokens = line.split_whitespace();
+    let date_token = tokens.next()?;
+    let time_token = tokens.next()?;
+    let time_token = time_token.replacen(',', ".", 1);
+    let candidate = format!("{date_token} {time_token}");
+    let naive = NaiveDateTime::parse_from_str(&candidate, "%Y-%m-%d %H:%M:%S%.f").ok()?;
+    Some(naive.and_utc().timestamp_millis())
+}
+
 /// Extracts an epoch-millisecond timestamp from the start of `line` for the
 /// given `format`, or `None` if the leading token doesn't match.
 pub fn extract_timestamp(line: &str, format: TimestampFormat) -> Option<i64> {
@@ -67,6 +81,7 @@ pub fn extract_timestamp(line: &str, format: TimestampFormat) -> Option<i64> {
         TimestampFormat::Iso8601 => parse_iso8601(token),
         TimestampFormat::EpochSeconds => parse_epoch(token, 9..=10, 1000),
         TimestampFormat::EpochMillis => parse_epoch(token, 12..=13, 1),
+        TimestampFormat::SpaceSeparated => parse_space_separated(line),
     }
 }
 
@@ -258,5 +273,84 @@ mod tests {
     #[test]
     fn parse_iso8601_rejects_non_timestamp() {
         assert_eq!(parse_iso8601("not-a-timestamp"), None);
+    }
+
+    #[test]
+    fn extract_timestamp_parses_space_separated_with_period_millis() {
+        let ms = extract_timestamp(
+            "2026-05-21 18:14:06.043 [main] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...",
+            TimestampFormat::SpaceSeparated,
+        );
+        assert_eq!(ms, Some(1779387246043));
+    }
+
+    #[test]
+    fn detect_format_picks_space_separated_when_dominant() {
+        let lines = vec![
+            "2026-05-21 18:14:06.043 [main] INFO one",
+            "2026-05-21 18:14:07.100 [main] INFO two",
+            "2026-05-21 18:14:08.250 [main] INFO three",
+            "no timestamp here",
+        ];
+        let profile = detect_format(lines.into_iter()).unwrap();
+        assert_eq!(profile.format, TimestampFormat::SpaceSeparated);
+        assert!((profile.match_ratio - 0.75).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn extract_timestamp_parses_space_separated_with_comma_millis() {
+        let ms = extract_timestamp(
+            "2026-05-21 18:14:06,043 [main] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...",
+            TimestampFormat::SpaceSeparated,
+        );
+        assert_eq!(ms, Some(1779387246043));
+    }
+
+    #[test]
+    fn extract_timestamp_parses_space_separated_without_fraction() {
+        let ms = extract_timestamp(
+            "2026-05-21 18:14:06 [main] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...",
+            TimestampFormat::SpaceSeparated,
+        );
+        assert_eq!(ms, Some(1779387246000));
+    }
+
+    #[test]
+    fn extract_timestamp_space_separated_does_not_match_iso8601_or_epoch_lines() {
+        assert_eq!(
+            extract_timestamp(
+                "2026-06-12T10:00:00Z connected",
+                TimestampFormat::SpaceSeparated
+            ),
+            None
+        );
+        assert_eq!(
+            extract_timestamp("1781258400000 connected", TimestampFormat::SpaceSeparated),
+            None
+        );
+    }
+
+    #[test]
+    fn extract_timestamp_space_separated_rejects_invalid_calendar_value() {
+        assert_eq!(
+            extract_timestamp(
+                "2026-13-01 10:00:00 bad month",
+                TimestampFormat::SpaceSeparated
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn detect_format_picks_iso8601_for_mixed_iso8601_and_space_separated_sample() {
+        let lines = vec![
+            "2026-06-12T10:00:00Z one",
+            "2026-06-12T10:00:01Z two",
+            "2026-06-12T10:00:02Z three",
+            "2026-05-21 18:14:06.043 [main] INFO four",
+        ];
+        let profile = detect_format(lines.into_iter()).unwrap();
+        assert_eq!(profile.format, TimestampFormat::Iso8601);
+        assert!((profile.match_ratio - 0.75).abs() < f64::EPSILON);
     }
 }

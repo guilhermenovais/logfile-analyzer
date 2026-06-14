@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { SearchHistoryEntry, SearchMatchEntry, SearchType } from "@/bindings";
+import { useLineSelectionStore } from "./useLineSelectionStore";
 
 /** Per-file search UI state (data-model.md "Frontend-only state: `SearchUiState`"). */
 export interface SearchUiState {
@@ -86,6 +87,9 @@ const useSearchUiStoreBase = create<SearchUiStoreState>((set) => ({
   setResults: (alias, results, truncated) =>
     set((state) => {
       const current = getSlice(state, alias);
+      if (results.length > 0) {
+        useLineSelectionStore.getState().selectLine(alias, results[0].line_index);
+      }
       return updateSlice(state, alias, {
         results,
         truncated,
@@ -97,6 +101,7 @@ const useSearchUiStoreBase = create<SearchUiStoreState>((set) => ({
   selectMatch: (alias, index) =>
     set((state) => {
       const current = getSlice(state, alias);
+      useLineSelectionStore.getState().selectLine(alias, current.results[index].line_index);
       return updateSlice(state, alias, {
         currentMatchIndex: index,
         scrollNonce: current.scrollNonce + 1,
@@ -108,9 +113,13 @@ const useSearchUiStoreBase = create<SearchUiStoreState>((set) => ({
       if (current.results.length === 0) {
         return {};
       }
+      const currentMatchIndex =
+        (current.currentMatchIndex + 1) % current.results.length;
+      useLineSelectionStore
+        .getState()
+        .selectLine(alias, current.results[currentMatchIndex].line_index);
       return updateSlice(state, alias, {
-        currentMatchIndex:
-          (current.currentMatchIndex + 1) % current.results.length,
+        currentMatchIndex,
         scrollNonce: current.scrollNonce + 1,
       });
     }),
@@ -120,10 +129,14 @@ const useSearchUiStoreBase = create<SearchUiStoreState>((set) => ({
       if (current.results.length === 0) {
         return {};
       }
+      const currentMatchIndex =
+        (current.currentMatchIndex - 1 + current.results.length) %
+        current.results.length;
+      useLineSelectionStore
+        .getState()
+        .selectLine(alias, current.results[currentMatchIndex].line_index);
       return updateSlice(state, alias, {
-        currentMatchIndex:
-          (current.currentMatchIndex - 1 + current.results.length) %
-          current.results.length,
+        currentMatchIndex,
         scrollNonce: current.scrollNonce + 1,
       });
     }),

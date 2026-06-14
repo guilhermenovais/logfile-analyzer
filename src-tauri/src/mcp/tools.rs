@@ -95,8 +95,16 @@ pub struct SearchWithContextInput {
     pub search_type: SearchTypeArg,
     #[serde(default)]
     pub surrounding_count: Option<usize>,
+    /// Inclusive lower bound on a matched line's timestamp. Must be an
+    /// ISO-8601 date-time with a `T` separator, e.g. "2024-01-15T10:30:00",
+    /// "2024-01-15T10:30:00.123" or "2024-01-15T10:30:00Z" (a value with no
+    /// timezone offset is treated as UTC). Space-separated timestamps (as
+    /// they may appear in the log file itself) are not accepted. Requires
+    /// the file to have a detected timestamp format.
     #[serde(default)]
     pub time_from: Option<String>,
+    /// Inclusive upper bound on a matched line's timestamp. Same ISO-8601
+    /// format as `time_from`.
     #[serde(default)]
     pub time_to: Option<String>,
 }
