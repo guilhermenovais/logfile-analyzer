@@ -20,6 +20,8 @@ export interface SearchUiState {
   currentMatchIndex: number;
   /** Incremented whenever the main view should (re-)scroll to `currentMatchIndex`. */
   scrollNonce: number;
+  /** Whether `timeFrom`/`timeTo` have been set, manually or pre-filled (FR-011–FR-013). */
+  timeRangeInitialized: boolean;
 }
 
 export const DEFAULT_SEARCH_UI_STATE: SearchUiState = {
@@ -32,6 +34,7 @@ export const DEFAULT_SEARCH_UI_STATE: SearchUiState = {
   panelOpen: false,
   currentMatchIndex: -1,
   scrollNonce: 0,
+  timeRangeInitialized: false,
 };
 
 interface SearchUiStoreState {
@@ -39,6 +42,12 @@ interface SearchUiStoreState {
   setQuery: (alias: string, query: string) => void;
   setSearchType: (alias: string, searchType: SearchType) => void;
   setTimeRange: (
+    alias: string,
+    timeFrom: number | null,
+    timeTo: number | null,
+  ) => void;
+  /** Pre-fills `timeFrom`/`timeTo` once, the first time a file's span is known (FR-011–FR-013). */
+  initializeTimeRange: (
     alias: string,
     timeFrom: number | null,
     timeTo: number | null,
@@ -83,7 +92,16 @@ const useSearchUiStoreBase = create<SearchUiStoreState>((set) => ({
   setSearchType: (alias, searchType) =>
     set((state) => updateSlice(state, alias, { searchType })),
   setTimeRange: (alias, timeFrom, timeTo) =>
-    set((state) => updateSlice(state, alias, { timeFrom, timeTo })),
+    set((state) =>
+      updateSlice(state, alias, { timeFrom, timeTo, timeRangeInitialized: true }),
+    ),
+  initializeTimeRange: (alias, timeFrom, timeTo) =>
+    set((state) => {
+      if (getSlice(state, alias).timeRangeInitialized) {
+        return {};
+      }
+      return updateSlice(state, alias, { timeFrom, timeTo, timeRangeInitialized: true });
+    }),
   setResults: (alias, results, truncated) =>
     set((state) => {
       const current = getSlice(state, alias);

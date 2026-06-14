@@ -145,6 +145,18 @@ pub fn list_files(state: State<'_, Arc<AppState>>) -> Result<Vec<LogFileSummary>
     list_file_summaries(&state)
 }
 
+/// Returns the epoch-ms of the first and last `Some` entries of
+/// `line_timestamps`, in line order, or `(None, None)` if absent or empty
+/// (research.md §5).
+fn line_timestamp_bounds(line_timestamps: &Option<Vec<Option<i64>>>) -> (Option<f64>, Option<f64>) {
+    let Some(timestamps) = line_timestamps else {
+        return (None, None);
+    };
+    let first = timestamps.iter().flatten().next().copied();
+    let last = timestamps.iter().flatten().next_back().copied();
+    (first.map(|ms| ms as f64), last.map(|ms| ms as f64))
+}
+
 /// Returns line-count, timestamp-detection, and indexing status for one file
 /// (FR-027). Shared by the `get_file_properties` Tauri command and the
 /// `get_file_properties` MCP tool (FR-029).
@@ -157,19 +169,35 @@ pub(crate) fn file_properties(state: &AppState, alias: &str) -> Result<FilePrope
     .ok_or(AppError::FileNotFound)?;
 
     let files = state.files.read().unwrap();
-    let (available, indexing_complete, total_lines) = match files.get(alias) {
-        Some(runtime) => {
-            let index = runtime.index.read().unwrap();
-            (true, index.state == IndexState::Ready, index.total_lines)
-        }
-        None => (false, false, 0),
-    };
+    let (available, indexing_complete, total_lines, first_timestamp, last_timestamp) =
+        match files.get(alias) {
+            Some(runtime) => {
+                let index = runtime.index.read().unwrap();
+                let indexing_complete = index.state == IndexState::Ready;
+                let (first_timestamp, last_timestamp) =
+                    if entry.has_timestamp_format && indexing_complete {
+                        line_timestamp_bounds(&index.line_timestamps)
+                    } else {
+                        (None, None)
+                    };
+                (
+                    true,
+                    indexing_complete,
+                    index.total_lines,
+                    first_timestamp,
+                    last_timestamp,
+                )
+            }
+            None => (false, false, 0, None, None),
+        };
 
     Ok(FileProperties {
         total_lines: total_lines as u32,
         has_timestamp_format: entry.has_timestamp_format,
         available,
         indexing_complete,
+        first_timestamp,
+        last_timestamp,
     })
 }
 

@@ -41,6 +41,10 @@ pub struct FileProperties {
     pub has_timestamp_format: bool,
     pub available: bool,
     pub indexing_complete: bool,
+    /// Epoch-ms timestamp of the first line, once detected and indexed (FR-011–FR-013).
+    pub first_timestamp: Option<f64>,
+    /// Epoch-ms timestamp of the last line, once detected and indexed (FR-011–FR-013).
+    pub last_timestamp: Option<f64>,
 }
 
 /// `{ line_index, content }` result of `get_line` (contracts/ipc-commands.md, FR-028).

@@ -70,7 +70,7 @@ describe("LogViewer", () => {
       }),
     );
 
-    render(<LogViewer alias="app" />);
+    render(<LogViewer alias="app" wrap={false} />);
 
     expect(useLogStream).toHaveBeenCalledWith("app");
     expect(screen.getByText("first line")).toBeInTheDocument();
@@ -92,12 +92,12 @@ describe("LogViewer", () => {
       }),
     );
 
-    render(<LogViewer alias="app" />);
+    render(<LogViewer alias="app" wrap={false} />);
 
     expect(loadRange).toHaveBeenCalled();
   });
 
-  it("toggles line wrap, defaulting to off", async () => {
+  it("renders lines with whiteSpace driven by the wrap prop", () => {
     useLogStream.mockReturnValue(
       mockResult({
         totalLines: 1,
@@ -105,17 +105,13 @@ describe("LogViewer", () => {
       }),
     );
 
-    render(<LogViewer alias="app" />);
+    const { rerender } = render(<LogViewer alias="app" wrap={false} />);
 
     const line = screen.getByText("a very long line of log output");
     expect(line).toHaveStyle({ whiteSpace: "pre" });
 
-    const toggle = screen.getByRole("checkbox", { name: /wrap/i });
-    expect(toggle).not.toBeChecked();
+    rerender(<LogViewer alias="app" wrap={true} />);
 
-    await userEvent.click(toggle);
-
-    expect(toggle).toBeChecked();
     expect(line).toHaveStyle({ whiteSpace: "pre-wrap" });
   });
 
@@ -131,7 +127,7 @@ describe("LogViewer", () => {
       }),
     );
 
-    render(<LogViewer alias="app" searchMatchLines={[1, 3]} />);
+    render(<LogViewer alias="app" wrap={false} searchMatchLines={[1, 3]} />);
 
     const firstRow = screen.getByText("first line").closest("div");
     const secondRow = screen.getByText("second line").closest("div");
@@ -153,6 +149,7 @@ describe("LogViewer", () => {
     render(
       <LogViewer
         alias="app"
+        wrap={false}
         searchMatchLines={[1]}
         highlights={[{ line_index: 1, content: "first line", label: null, origin: "user" }]}
       />,
@@ -178,7 +175,7 @@ describe("LogViewer", () => {
     );
 
     const { rerender } = render(
-      <LogViewer alias="app" scrollToLine={{ lineIndex: 3, nonce: 1 }} />,
+      <LogViewer alias="app" wrap={false} scrollToLine={{ lineIndex: 3, nonce: 1 }} />,
     );
 
     expect(scrollToIndex).toHaveBeenCalledWith(2, { align: "center" });
@@ -186,7 +183,7 @@ describe("LogViewer", () => {
     scrollToIndex.mockClear();
 
     // Same lineIndex, new nonce: should scroll again.
-    rerender(<LogViewer alias="app" scrollToLine={{ lineIndex: 3, nonce: 2 }} />);
+    rerender(<LogViewer alias="app" wrap={false} scrollToLine={{ lineIndex: 3, nonce: 2 }} />);
 
     expect(scrollToIndex).toHaveBeenCalledWith(2, { align: "center" });
   });
@@ -199,7 +196,7 @@ describe("LogViewer", () => {
       }),
     );
 
-    render(<LogViewer alias="app" scrollToLine={null} />);
+    render(<LogViewer alias="app" wrap={false} scrollToLine={null} />);
 
     expect(scrollToIndex).not.toHaveBeenCalled();
   });
@@ -216,7 +213,7 @@ describe("LogViewer", () => {
       }),
     );
 
-    render(<LogViewer alias="app" />);
+    render(<LogViewer alias="app" wrap={false} />);
 
     await userEvent.click(screen.getByText("second line"));
 
@@ -246,6 +243,7 @@ describe("LogViewer", () => {
     render(
       <LogViewer
         alias="app"
+        wrap={false}
         highlightedOnly={true}
         highlights={[
           { line_index: 1, content: "first line", label: null, origin: "user" },
