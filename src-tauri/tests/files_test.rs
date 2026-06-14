@@ -1,18 +1,21 @@
 //! Integration tests (Tauri mock runtime) for `commands::files::add_file`
-//! (contracts/ipc-commands.md, FR-002/FR-003).
+//! (contracts/ipc-commands.md, FR-002/FR-003) and `file_properties`
+//! (contracts/file-properties.md).
 
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use logfile_analyzer_lib::commands::files;
 use logfile_analyzer_lib::error::AppError;
-use logfile_analyzer_lib::persistence::repo::workspace;
+use logfile_analyzer_lib::logfile::timestamp;
+use logfile_analyzer_lib::persistence::repo::{log_file_entry, workspace};
 use logfile_analyzer_lib::persistence::schema;
-use logfile_analyzer_lib::state::AppState;
+use logfile_analyzer_lib::state::{AppState, FileIndex, FileRuntime, IndexState};
 
+use memmap2::Mmap;
 use rusqlite::Connection;
 use tauri::Manager;
 
@@ -26,6 +29,26 @@ fn write_temp_file(name: &str, contents: &[u8]) -> PathBuf {
     path
 }
 
+fn open_mmap(path: &PathBuf) -> Mmap {
+    let file = File::open(path).unwrap();
+    unsafe { Mmap::map(&file).unwrap() }
+}
+
+/// Byte offset of each line start in `data`, mirroring
+/// `logfile::mmap_index::build_line_index`'s convention.
+fn line_offsets(data: &[u8]) -> Vec<u64> {
+    let mut offsets = Vec::new();
+    if !data.is_empty() {
+        offsets.push(0u64);
+    }
+    for (i, &byte) in data.iter().enumerate() {
+        if byte == b'\n' && i + 1 < data.len() {
+            offsets.push((i + 1) as u64);
+        }
+    }
+    offsets
+}
+
 fn mock_app() -> tauri::App<tauri::test::MockRuntime> {
     let conn = Connection::open_in_memory().unwrap();
     schema::migrate(&conn).unwrap();
@@ -36,6 +59,76 @@ fn mock_app() -> tauri::App<tauri::test::MockRuntime> {
         .manage(state)
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap()
+}
+
+/// Registers `alias` in the active workspace with `contents` and a fully
+/// built (ready) line index, returning its `file_id`.
+fn add_ready_file(state: &Arc<AppState>, alias: &str, contents: &[u8]) -> i64 {
+    let workspace_id = *state.active_workspace_id.lock().unwrap();
+    let path = write_temp_file(alias, contents);
+    let entry = {
+        let db = state.db.lock().unwrap();
+        log_file_entry::insert(&db, workspace_id, &path.to_string_lossy(), alias).unwrap()
+    };
+
+    let mmap = open_mmap(&path);
+    let offsets = line_offsets(contents);
+    let total = offsets.len();
+    let runtime = Arc::new(FileRuntime {
+        file_id: entry.id,
+        mmap,
+        index: RwLock::new(FileIndex {
+            line_offsets: offsets,
+            total_lines: total,
+            state: IndexState::Ready,
+            timestamp_profile: None,
+            line_timestamps: None,
+        }),
+    });
+    state
+        .files
+        .write()
+        .unwrap()
+        .insert(alias.to_string(), runtime);
+    entry.id
+}
+
+/// Like [`add_ready_file`], but additionally runs timestamp detection
+/// (research.md §4) and persists `has_timestamp_format` so
+/// `file_properties`'s `entry.has_timestamp_format` is `true`.
+fn add_ready_file_with_timestamps(state: &Arc<AppState>, alias: &str, contents: &[u8]) -> i64 {
+    let workspace_id = *state.active_workspace_id.lock().unwrap();
+    let path = write_temp_file(alias, contents);
+    let entry = {
+        let db = state.db.lock().unwrap();
+        log_file_entry::insert(&db, workspace_id, &path.to_string_lossy(), alias).unwrap()
+    };
+
+    let mmap = open_mmap(&path);
+    let offsets = line_offsets(contents);
+    let total = offsets.len();
+    let runtime = Arc::new(FileRuntime {
+        file_id: entry.id,
+        mmap,
+        index: RwLock::new(FileIndex {
+            line_offsets: offsets,
+            total_lines: total,
+            state: IndexState::Ready,
+            timestamp_profile: None,
+            line_timestamps: None,
+        }),
+    });
+    timestamp::detect_and_parse(&runtime.mmap, &runtime.index);
+    {
+        let db = state.db.lock().unwrap();
+        log_file_entry::set_has_timestamp_format(&db, entry.id, true).unwrap();
+    }
+    state
+        .files
+        .write()
+        .unwrap()
+        .insert(alias.to_string(), runtime);
+    entry.id
 }
 
 #[test]
@@ -84,6 +177,77 @@ fn add_file_rejects_duplicate_path() {
     .unwrap_err();
 
     assert!(matches!(err, AppError::FileAlreadyInWorkspace));
+}
+
+#[test]
+fn file_properties_reports_first_and_last_timestamps() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+    add_ready_file_with_timestamps(
+        &state,
+        "app",
+        b"2026-06-12T10:00:00Z connecting to db\n2026-06-12T10:01:00Z an error talking to db\n2026-06-12T10:02:00Z recovered\n",
+    );
+
+    let props = files::get_file_properties(state.clone(), "app".into()).unwrap();
+
+    assert_eq!(
+        props.first_timestamp,
+        timestamp::parse_iso8601("2026-06-12T10:00:00Z").map(|ms| ms as f64),
+    );
+    assert_eq!(
+        props.last_timestamp,
+        timestamp::parse_iso8601("2026-06-12T10:02:00Z").map(|ms| ms as f64),
+    );
+}
+
+#[test]
+fn file_properties_timestamps_null_without_detected_format() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+    add_ready_file(&state, "app", b"one\ntwo\nthree\n");
+
+    let props = files::get_file_properties(state.clone(), "app".into()).unwrap();
+
+    assert_eq!(props.first_timestamp, None);
+    assert_eq!(props.last_timestamp, None);
+}
+
+#[test]
+fn file_properties_timestamps_null_when_indexing_incomplete() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+    let workspace_id = *state.active_workspace_id.lock().unwrap();
+    let path = write_temp_file("app", b"2026-06-12T10:00:00Z connecting to db\n");
+    let entry = {
+        let db = state.db.lock().unwrap();
+        log_file_entry::insert(&db, workspace_id, &path.to_string_lossy(), "app").unwrap()
+    };
+
+    let mmap = open_mmap(&path);
+    let offsets = line_offsets(b"2026-06-12T10:00:00Z connecting to db\n");
+    let total = offsets.len();
+    let runtime = Arc::new(FileRuntime {
+        file_id: entry.id,
+        mmap,
+        index: RwLock::new(FileIndex {
+            line_offsets: offsets,
+            total_lines: total,
+            state: IndexState::Indexing,
+            timestamp_profile: None,
+            line_timestamps: Some(vec![timestamp::parse_iso8601("2026-06-12T10:00:00Z")]),
+        }),
+    });
+    state
+        .files
+        .write()
+        .unwrap()
+        .insert("app".to_string(), runtime);
+
+    let props = files::get_file_properties(state.clone(), "app".into()).unwrap();
+
+    assert_eq!(props.first_timestamp, None);
+    assert_eq!(props.last_timestamp, None);
 }
 
 #[test]

@@ -41,6 +41,38 @@ describe("useSearchUiStore", () => {
       panelOpen: false,
       currentMatchIndex: -1,
       scrollNonce: 0,
+      timeRangeInitialized: false,
+    });
+  });
+
+  describe("initializeTimeRange (FR-011-FR-013)", () => {
+    it("pre-fills timeFrom/timeTo and marks the slice initialized", () => {
+      useSearchUiStore.getState().initializeTimeRange("a", 1000, 2000);
+
+      const slice = getSearchUiSlice("a");
+      expect(slice.timeFrom).toBe(1000);
+      expect(slice.timeTo).toBe(2000);
+      expect(slice.timeRangeInitialized).toBe(true);
+    });
+
+    it("is a no-op once the slice is already initialized", () => {
+      useSearchUiStore.getState().initializeTimeRange("a", 1000, 2000);
+      useSearchUiStore.getState().initializeTimeRange("a", 3000, 4000);
+
+      const slice = getSearchUiSlice("a");
+      expect(slice.timeFrom).toBe(1000);
+      expect(slice.timeTo).toBe(2000);
+    });
+
+    it("setTimeRange marks the slice initialized, so a later initializeTimeRange is a no-op", () => {
+      useSearchUiStore.getState().setTimeRange("a", 1000, 2000);
+      expect(getSearchUiSlice("a").timeRangeInitialized).toBe(true);
+
+      useSearchUiStore.getState().initializeTimeRange("a", 3000, 4000);
+
+      const slice = getSearchUiSlice("a");
+      expect(slice.timeFrom).toBe(1000);
+      expect(slice.timeTo).toBe(2000);
     });
   });
 

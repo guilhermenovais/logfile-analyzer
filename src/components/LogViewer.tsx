@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { LogLine } from "@/components/LogLine";
 import { useLineSelectionKeyboard } from "@/hooks/useLineSelectionKeyboard";
@@ -13,6 +13,8 @@ const OVERSCAN = 10;
 export interface LogViewerProps {
   /** Workspace alias of the file to view. */
   alias: string;
+  /** Wrap long lines (FR-001/FR-002, moved from local state to `LogViewToolbar`). */
+  wrap: boolean;
   /** Highlighted lines for this file (FR-020), keyed by `line_index`. */
   highlights?: HighlightEntry[];
   /** Show only highlighted lines (FR-019). */
@@ -34,13 +36,13 @@ export interface LogViewerProps {
 /**
  * Virtualized log line viewer (FR-014/FR-016, SC-001): renders only the
  * visible window of lines, streaming new ranges from `useLogStream` as the
- * user scrolls. The line-wrap toggle is pure frontend view state (FR-015),
- * defaulting to off. Highlighted lines (FR-017/FR-018) are styled inline,
- * and the "highlighted only" filter (FR-019) switches to a flat list of just
- * those lines.
+ * user scrolls. The `wrap` prop (FR-015) is controlled by `LogViewToolbar`.
+ * Highlighted lines (FR-017/FR-018) are styled inline, and the "highlighted
+ * only" filter (FR-019) switches to a flat list of just those lines.
  */
 export function LogViewer({
   alias,
+  wrap,
   highlights = [],
   highlightedOnly = false,
   onToggleHighlight,
@@ -48,7 +50,6 @@ export function LogViewer({
   scrollToLine,
 }: LogViewerProps) {
   const { lines, totalLines, loadRange } = useLogStream(alias);
-  const [wrap, setWrap] = useState(false);
   const parentRef = useRef<HTMLDivElement>(null);
 
   const selectedLine = useLineSelectionStore(
@@ -138,14 +139,6 @@ export function LogViewer({
 
   return (
     <div className="flex h-full flex-col">
-      <label className="flex items-center gap-2 border-b p-2 text-sm">
-        <input
-          type="checkbox"
-          checked={wrap}
-          onChange={(event) => setWrap(event.target.checked)}
-        />
-        Wrap lines
-      </label>
       {highlightedOnly ? (
         <div className="flex-1 overflow-auto font-mono text-sm">
           {highlights.length === 0 ? (

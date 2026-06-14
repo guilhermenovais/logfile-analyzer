@@ -8,10 +8,6 @@ export interface HighlightPanelProps {
   isLoading: boolean;
   /** Message from the last failed highlight operation, if any. */
   error: string | null;
-  /** Whether the log view is filtered to highlighted lines only (FR-019). */
-  highlightedOnly: boolean;
-  /** Toggles the "highlighted only" filter (FR-019). */
-  onHighlightedOnlyChange: (value: boolean) => void;
   /** Updates (or clears, when `label` is `null`) a highlight's label (FR-018). */
   onUpdateLabel: (lineIndex: number, label: string | null) => void;
   /** Removes a highlight (FR-017). */
@@ -20,15 +16,12 @@ export interface HighlightPanelProps {
 
 /**
  * Lists highlighted lines for the active file, with inline label editing
- * (FR-018), removal (FR-017), and the "highlighted only" view filter
- * (FR-019).
+ * (FR-018) and removal (FR-017).
  */
 export function HighlightPanel({
   highlights,
   isLoading,
   error,
-  highlightedOnly,
-  onHighlightedOnlyChange,
   onUpdateLabel,
   onRemove,
 }: HighlightPanelProps) {
@@ -54,16 +47,7 @@ export function HighlightPanel({
   const sorted = [...highlights].sort((a, b) => a.line_index - b.line_index);
 
   return (
-    <div className="flex flex-col gap-2 border-b p-2">
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={highlightedOnly}
-          onChange={(event) => onHighlightedOnlyChange(event.target.checked)}
-        />
-        Highlighted only
-      </label>
-
+    <div id="highlighted-lines-panel" className="flex flex-col gap-2 border-b p-2">
       {error && <p className="text-xs text-destructive">{error}</p>}
       {isLoading && (
         <p className="text-xs text-muted-foreground">Loading highlights…</p>

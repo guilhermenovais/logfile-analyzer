@@ -29,8 +29,6 @@ describe("HighlightPanel", () => {
         highlights={[]}
         isLoading={false}
         error={null}
-        highlightedOnly={false}
-        onHighlightedOnlyChange={noop}
         onUpdateLabel={noop}
         onRemove={noop}
       />,
@@ -45,8 +43,6 @@ describe("HighlightPanel", () => {
         highlights={[highlightA, highlightB]}
         isLoading={false}
         error={null}
-        highlightedOnly={false}
-        onHighlightedOnlyChange={noop}
         onUpdateLabel={noop}
         onRemove={noop}
       />,
@@ -70,8 +66,6 @@ describe("HighlightPanel", () => {
         highlights={[highlightB]}
         isLoading={false}
         error={null}
-        highlightedOnly={false}
-        onHighlightedOnlyChange={noop}
         onUpdateLabel={onUpdateLabel}
         onRemove={noop}
       />,
@@ -91,8 +85,6 @@ describe("HighlightPanel", () => {
         highlights={[highlightA]}
         isLoading={false}
         error={null}
-        highlightedOnly={false}
-        onHighlightedOnlyChange={noop}
         onUpdateLabel={onUpdateLabel}
         onRemove={noop}
       />,
@@ -112,8 +104,6 @@ describe("HighlightPanel", () => {
         highlights={[highlightA]}
         isLoading={false}
         error={null}
-        highlightedOnly={false}
-        onHighlightedOnlyChange={noop}
         onUpdateLabel={noop}
         onRemove={onRemove}
       />,
@@ -126,33 +116,12 @@ describe("HighlightPanel", () => {
     expect(onRemove).toHaveBeenCalledWith(3);
   });
 
-  it("toggles the highlighted-only filter", async () => {
-    const onHighlightedOnlyChange = vi.fn();
-    render(
-      <HighlightPanel
-        highlights={[highlightA]}
-        isLoading={false}
-        error={null}
-        highlightedOnly={false}
-        onHighlightedOnlyChange={onHighlightedOnlyChange}
-        onUpdateLabel={noop}
-        onRemove={noop}
-      />,
-    );
-
-    await userEvent.click(screen.getByLabelText(/highlighted only/i));
-
-    expect(onHighlightedOnlyChange).toHaveBeenCalledWith(true);
-  });
-
   it("displays an error message", () => {
     render(
       <HighlightPanel
         highlights={[]}
         isLoading={false}
         error="LineOutOfRange"
-        highlightedOnly={false}
-        onHighlightedOnlyChange={noop}
         onUpdateLabel={noop}
         onRemove={noop}
       />,

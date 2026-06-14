@@ -15,28 +15,6 @@ export interface SearchBarProps {
 }
 
 /**
- * Converts epoch-ms to a value suitable for an `<input type="datetime-local">`,
- * rendered in the user's local time zone.
- */
-function toDatetimeLocalValue(epochMs: number): string {
-  const date = new Date(epochMs);
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 16);
-}
-
-/**
- * Parses an `<input type="datetime-local">` value (local time) to epoch-ms,
- * or `null` if empty.
- */
-function fromDatetimeLocalValue(value: string): number | null {
-  if (value === "") {
-    return null;
-  }
-  const ms = new Date(value).getTime();
-  return Number.isNaN(ms) ? null : ms;
-}
-
-/**
  * Logical-expression/regex search bar (FR-021–FR-025): runs `search` for the
  * active file (results are shown by `SearchResultsPanel`). The query,
  * search type, and time range are bound to `useSearchUiStore` so they survive
@@ -158,62 +136,6 @@ export function SearchBar({ alias, hasTimestampFormat }: SearchBarProps) {
           <Clock size={16} />
         </button>
       </form>
-
-      {hasTimestampFormat && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <label className="flex items-center gap-1">
-            From
-            <input
-              type="datetime-local"
-              aria-label="Time range from"
-              className="rounded border px-2 py-1"
-              value={timeFrom !== null ? toDatetimeLocalValue(timeFrom) : ""}
-              onChange={(event) =>
-                alias &&
-                useSearchUiStore
-                  .getState()
-                  .setTimeRange(
-                    alias,
-                    fromDatetimeLocalValue(event.target.value),
-                    timeTo,
-                  )
-              }
-              disabled={!alias}
-            />
-          </label>
-          <label className="flex items-center gap-1">
-            To
-            <input
-              type="datetime-local"
-              aria-label="Time range to"
-              className="rounded border px-2 py-1"
-              value={timeTo !== null ? toDatetimeLocalValue(timeTo) : ""}
-              onChange={(event) =>
-                alias &&
-                useSearchUiStore
-                  .getState()
-                  .setTimeRange(
-                    alias,
-                    timeFrom,
-                    fromDatetimeLocalValue(event.target.value),
-                  )
-              }
-              disabled={!alias}
-            />
-          </label>
-          {(timeFrom !== null || timeTo !== null) && (
-            <button
-              type="button"
-              className="hover:underline"
-              onClick={() =>
-                alias && useSearchUiStore.getState().setTimeRange(alias, null, null)
-              }
-            >
-              Clear
-            </button>
-          )}
-        </div>
-      )}
 
       {error && <p className="text-xs text-destructive">{error}</p>}
 

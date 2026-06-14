@@ -110,36 +110,6 @@ describe("SearchBar", () => {
     expect(screen.getByRole("button", { name: "Search" })).toBeDisabled();
   });
 
-  it("hides the time-range controls when the file has no detected timestamp format", () => {
-    useSearch.mockReturnValue(mockResult());
-
-    render(<SearchBar alias="app" hasTimestampFormat={false} />);
-
-    expect(screen.queryByLabelText("Time range from")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Time range to")).not.toBeInTheDocument();
-  });
-
-  it("submits the time range when the file has a detected timestamp format", async () => {
-    const runSearch = vi.fn();
-    useSearch.mockReturnValue(mockResult({ runSearch }));
-
-    render(<SearchBar alias="app" hasTimestampFormat={true} />);
-
-    await userEvent.type(screen.getByLabelText("Search query"), '"db"');
-    await userEvent.type(
-      screen.getByLabelText("Time range from"),
-      "2026-06-12T10:00",
-    );
-    await userEvent.click(screen.getByRole("button", { name: "Search" }));
-
-    expect(runSearch).toHaveBeenCalledWith(
-      '"db"',
-      "logical",
-      new Date("2026-06-12T10:00").getTime(),
-      null,
-    );
-  });
-
   it("preserves the query in the store after the results panel is closed (FR-008)", async () => {
     const runSearch = vi.fn();
     useSearch.mockReturnValue(mockResult({ runSearch }));

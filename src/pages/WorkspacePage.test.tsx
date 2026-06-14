@@ -2,6 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LogViewerProps } from "@/components/LogViewer";
+import { useLogViewToolbarStore } from "@/hooks/useLogViewToolbarStore";
 import { useSearchUiStore } from "@/hooks/useSearchUiStore";
 import { WorkspacePage } from "./WorkspacePage";
 
@@ -53,6 +54,12 @@ vi.mock("@/hooks/useHighlights", () => ({
   }),
 }));
 
+const { useFileProperties } = vi.hoisted(() => ({
+  useFileProperties: vi.fn(),
+}));
+
+vi.mock("@/hooks/useFileProperties", () => ({ useFileProperties }));
+
 vi.mock("@/hooks/useSearch", () => ({
   useSearch: () => ({
     isSearching: false,
@@ -80,7 +87,9 @@ vi.mock("@/components/LogViewer", () => ({ LogViewer }));
 describe("WorkspacePage - Search results panel", () => {
   beforeEach(() => {
     LogViewer.mockClear();
+    useFileProperties.mockReturnValue({ data: undefined });
     useSearchUiStore.setState({ slices: {} });
+    useLogViewToolbarStore.setState({ slices: {} });
     useActiveWorkspace.mockReturnValue({
       data: {
         alias: "ws",
@@ -141,6 +150,97 @@ describe("WorkspacePage - Search results panel", () => {
     expect(lastPropsAfterClick?.scrollToLine?.lineIndex).toBe(7);
   });
 
+  it("renders LogViewToolbar for the selected file and passes wrap to LogViewer (T014)", async () => {
+    render(<WorkspacePage />);
+
+    await userEvent.click(screen.getByRole("button", { name: "app" }));
+
+    expect(screen.getByLabelText(/highlighted only/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/wrap lines/i)).toBeInTheDocument();
+
+    const calls = LogViewer.mock.calls;
+    const lastProps = calls[calls.length - 1]?.[0];
+    expect(lastProps?.wrap).toBe(false);
+
+    await userEvent.click(screen.getByLabelText(/wrap lines/i));
+
+    const callsAfter = LogViewer.mock.calls;
+    const lastPropsAfter = callsAfter[callsAfter.length - 1]?.[0];
+    expect(lastPropsAfter?.wrap).toBe(true);
+  });
+
+  it("pre-fills the time range from the file's first/last timestamps once available (FR-011-FR-013)", async () => {
+    useFileProperties.mockReturnValue({
+      data: {
+        total_lines: 3,
+        has_timestamp_format: false,
+        available: true,
+        indexing_complete: true,
+        first_timestamp: 1000,
+        last_timestamp: 2000,
+      },
+    });
+
+    render(<WorkspacePage />);
+
+    await userEvent.click(screen.getByRole("button", { name: "app" }));
+
+    expect(useSearchUiStore.getState().slices["app"]?.timeFrom).toBe(1000);
+    expect(useSearchUiStore.getState().slices["app"]?.timeTo).toBe(2000);
+    expect(useSearchUiStore.getState().slices["app"]?.timeRangeInitialized).toBe(true);
+  });
+
+  it("does not pre-fill the time range while first/last timestamps are still null", async () => {
+    useFileProperties.mockReturnValue({
+      data: {
+        total_lines: 3,
+        has_timestamp_format: false,
+        available: true,
+        indexing_complete: false,
+        first_timestamp: null,
+        last_timestamp: null,
+      },
+    });
+
+    render(<WorkspacePage />);
+
+    await userEvent.click(screen.getByRole("button", { name: "app" }));
+
+    expect(useSearchUiStore.getState().slices["app"]?.timeRangeInitialized).toBeFalsy();
+  });
+
+  it("hides the highlighted-lines list by default and shows it via the toolbar's show/hide button (US2)", async () => {
+    render(<WorkspacePage />);
+
+    await userEvent.click(screen.getByRole("button", { name: "app" }));
+
+    expect(screen.queryByText(/no highlighted lines/i)).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /show highlights/i }));
+
+    expect(screen.getByText(/no highlighted lines/i)).toBeInTheDocument();
+    expect(document.getElementById("highlighted-lines-panel")).toBeInTheDocument();
+  });
+
+  it("toggling highlightsVisible does not change highlightedOnly or LogViewer's highlights (US2)", async () => {
+    render(<WorkspacePage />);
+
+    await userEvent.click(screen.getByRole("button", { name: "app" }));
+
+    const callsBefore = LogViewer.mock.calls;
+    const propsBefore = callsBefore[callsBefore.length - 1]?.[0];
+
+    act(() => {
+      useLogViewToolbarStore.getState().toggleHighlightsVisible("app");
+    });
+
+    const callsAfter = LogViewer.mock.calls;
+    const propsAfter = callsAfter[callsAfter.length - 1]?.[0];
+
+    expect(propsAfter?.highlightedOnly).toBe(propsBefore?.highlightedOnly);
+    expect(propsAfter?.highlights).toEqual(propsBefore?.highlights);
+  });
+
   it("closing the results panel removes it and clears LogViewer's searchMatchLines/scrollToLine while preserving the query (FR-007/FR-008)", async () => {
     render(<WorkspacePage />);
 
@@ -178,6 +278,7 @@ describe("WorkspacePage - Search results panel", () => {
 describe("WorkspacePage - Add file dialog", () => {
   beforeEach(() => {
     pickLogFile.mockReset();
+    useFileProperties.mockReturnValue({ data: undefined });
     useActiveWorkspace.mockReturnValue({
       data: { alias: "ws", files: [] },
       isLoading: false,

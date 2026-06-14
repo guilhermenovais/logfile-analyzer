@@ -1,12 +1,18 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FeatureErrorBoundary } from "@/components/FeatureErrorBoundary";
 import { HighlightPanel } from "@/components/HighlightPanel";
 import { LogViewer } from "@/components/LogViewer";
+import { LogViewToolbar } from "@/components/LogViewToolbar";
 import { SavePromptDialog } from "@/components/SavePromptDialog";
 import { SearchBar } from "@/components/SearchBar";
 import { SearchResultsPanel } from "@/components/SearchResultsPanel";
 import { WorkspaceSidebar } from "@/components/WorkspaceSidebar";
+import { useFileProperties } from "@/hooks/useFileProperties";
 import { useHighlights } from "@/hooks/useHighlights";
+import {
+  DEFAULT_LOG_VIEW_TOOLBAR_STATE,
+  useLogViewToolbarStore,
+} from "@/hooks/useLogViewToolbarStore";
 import { useSearchUiStore } from "@/hooks/useSearchUiStore";
 import { useWorkspaceActions } from "@/hooks/useWorkspaceActions";
 import { useActiveWorkspace, useRemoveFile } from "@/hooks/useWorkspace";
@@ -31,7 +37,10 @@ export function WorkspacePage() {
   } = useWorkspaceActions();
 
   const [selectedAlias, setSelectedAlias] = useState<string | null>(null);
-  const [highlightedOnly, setHighlightedOnly] = useState(false);
+
+  const { highlightedOnly, highlightsVisible, wrap } = useLogViewToolbarStore(
+    (state) => state.slices[selectedAlias ?? ""] ?? DEFAULT_LOG_VIEW_TOOLBAR_STATE,
+  );
 
   const highlights = useHighlights(selectedAlias);
   // Subscribing to the whole slice (rather than a derived value) ensures the
@@ -43,6 +52,20 @@ export function WorkspacePage() {
   const panelOpen = searchSlice?.panelOpen ?? false;
 
   const files = workspace?.files ?? [];
+  const hasTimestampFormat =
+    files.find((file) => file.alias === selectedAlias)?.has_timestamp_format ?? false;
+
+  const { data: fileProperties } = useFileProperties(selectedAlias);
+  const firstTimestamp = fileProperties?.first_timestamp ?? null;
+  const lastTimestamp = fileProperties?.last_timestamp ?? null;
+
+  useEffect(() => {
+    if (selectedAlias && firstTimestamp !== null && lastTimestamp !== null) {
+      useSearchUiStore
+        .getState()
+        .initializeTimeRange(selectedAlias, firstTimestamp, lastTimestamp);
+    }
+  }, [selectedAlias, firstTimestamp, lastTimestamp]);
 
   function handleToggleHighlight(lineIndex: number, isHighlighted: boolean) {
     if (isHighlighted) {
@@ -81,13 +104,7 @@ export function WorkspacePage() {
         {!isLoading && selectedAlias && (
           <>
             <FeatureErrorBoundary key={`search-${selectedAlias}`} label="Search">
-              <SearchBar
-                alias={selectedAlias}
-                hasTimestampFormat={
-                  files.find((file) => file.alias === selectedAlias)
-                    ?.has_timestamp_format ?? false
-                }
-              />
+              <SearchBar alias={selectedAlias} hasTimestampFormat={hasTimestampFormat} />
             </FeatureErrorBoundary>
             {panelOpen && (
               <FeatureErrorBoundary
@@ -98,19 +115,25 @@ export function WorkspacePage() {
               </FeatureErrorBoundary>
             )}
             <FeatureErrorBoundary
-              key={`highlights-${selectedAlias}`}
-              label="Highlights"
+              key={`toolbar-${selectedAlias}`}
+              label="Log view toolbar"
             >
-              <HighlightPanel
-                highlights={highlights.highlights}
-                isLoading={highlights.isLoading}
-                error={highlights.error}
-                highlightedOnly={highlightedOnly}
-                onHighlightedOnlyChange={setHighlightedOnly}
-                onUpdateLabel={highlights.updateLabel}
-                onRemove={highlights.removeHighlight}
-              />
+              <LogViewToolbar alias={selectedAlias} hasTimestampFormat={hasTimestampFormat} />
             </FeatureErrorBoundary>
+            {highlightsVisible && (
+              <FeatureErrorBoundary
+                key={`highlights-${selectedAlias}`}
+                label="Highlights"
+              >
+                <HighlightPanel
+                  highlights={highlights.highlights}
+                  isLoading={highlights.isLoading}
+                  error={highlights.error}
+                  onUpdateLabel={highlights.updateLabel}
+                  onRemove={highlights.removeHighlight}
+                />
+              </FeatureErrorBoundary>
+            )}
             <div className="flex-1 overflow-hidden">
               <FeatureErrorBoundary
                 key={`log-viewer-${selectedAlias}`}
@@ -118,6 +141,7 @@ export function WorkspacePage() {
               >
                 <LogViewer
                   alias={selectedAlias}
+                  wrap={wrap}
                   highlights={highlights.highlights}
                   highlightedOnly={highlightedOnly}
                   onToggleHighlight={handleToggleHighlight}
