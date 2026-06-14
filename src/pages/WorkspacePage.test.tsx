@@ -18,6 +18,7 @@ const {
   useDiscardDraft,
   useIsWorkspaceDirty,
   useRemoveFile,
+  useRenameWorkspace,
   useSaveWorkspace,
 } = vi.hoisted(() => ({
   useActiveWorkspace: vi.fn(),
@@ -26,6 +27,7 @@ const {
   useDiscardDraft: vi.fn(),
   useIsWorkspaceDirty: vi.fn(),
   useRemoveFile: vi.fn(),
+  useRenameWorkspace: vi.fn(),
   useSaveWorkspace: vi.fn(),
 }));
 
@@ -36,6 +38,7 @@ vi.mock("@/hooks/useWorkspace", () => ({
   useDiscardDraft,
   useIsWorkspaceDirty,
   useRemoveFile,
+  useRenameWorkspace,
   useSaveWorkspace,
 }));
 
@@ -97,6 +100,12 @@ describe("WorkspacePage - Search results panel", () => {
     useDiscardDraft.mockReturnValue({ mutate: vi.fn() });
     useIsWorkspaceDirty.mockReturnValue({ data: false });
     useRemoveFile.mockReturnValue({ mutate: vi.fn() });
+    useRenameWorkspace.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      isError: false,
+      error: null,
+    });
     useSaveWorkspace.mockReturnValue({ mutate: vi.fn(), isPending: false });
   });
 
@@ -178,6 +187,12 @@ describe("WorkspacePage - Add file dialog", () => {
     useDiscardDraft.mockReturnValue({ mutate: vi.fn() });
     useIsWorkspaceDirty.mockReturnValue({ data: false });
     useRemoveFile.mockReturnValue({ mutate: vi.fn() });
+    useRenameWorkspace.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      isError: false,
+      error: null,
+    });
     useSaveWorkspace.mockReturnValue({ mutate: vi.fn(), isPending: false });
   });
 

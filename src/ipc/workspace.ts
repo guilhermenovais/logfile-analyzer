@@ -18,6 +18,11 @@ export async function saveWorkspace(alias: string): Promise<WorkspaceSummary> {
   return unwrapResult(await commands.saveWorkspace(alias));
 }
 
+/** Renames the active workspace without changing its draft status (FR-012/FR-013). */
+export async function renameWorkspace(alias: string): Promise<WorkspaceSummary> {
+  return unwrapResult(await commands.renameWorkspace(alias));
+}
+
 /** Drops the unsaved draft and starts a fresh one (FR-007). */
 export async function discardDraft(): Promise<void> {
   unwrapResult(await commands.discardDraft());

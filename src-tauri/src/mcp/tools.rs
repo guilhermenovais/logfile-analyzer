@@ -28,6 +28,7 @@ fn map_error(err: AppError) -> Json<McpToolError> {
         AppError::FileAlreadyInWorkspace => "file_already_in_workspace",
         AppError::AliasCollision => "alias_collision",
         AppError::WorkspaceAliasInUse => "workspace_alias_in_use",
+        AppError::InvalidWorkspaceName => "invalid_workspace_name",
         AppError::FileNotFound => "file_not_found",
         AppError::FileUnavailable => "file_unavailable",
         AppError::LineOutOfRange => "line_out_of_range",
