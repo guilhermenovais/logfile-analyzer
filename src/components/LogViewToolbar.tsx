@@ -3,6 +3,7 @@ import {
   DEFAULT_LOG_VIEW_TOOLBAR_STATE,
   useLogViewToolbarStore,
 } from "@/hooks/useLogViewToolbarStore";
+import { useFileProperties } from "@/hooks/useFileProperties";
 import { DEFAULT_SEARCH_UI_STATE, useSearchUiStore } from "@/hooks/useSearchUiStore";
 import { TimeRangeField } from "./TimeRangeField";
 
@@ -25,6 +26,9 @@ export function LogViewToolbar({ alias, hasTimestampFormat }: LogViewToolbarProp
   const { highlightedOnly, highlightsVisible, wrap } = useLogViewToolbarStore(
     (state) => state.slices[alias] ?? DEFAULT_LOG_VIEW_TOOLBAR_STATE,
   );
+  const { data: fileProperties } = useFileProperties(alias);
+  const firstTimestamp = fileProperties?.first_timestamp ?? null;
+  const lastTimestamp = fileProperties?.last_timestamp ?? null;
 
   return (
     <div className="flex flex-wrap items-center gap-2 border-b p-2 text-sm">
@@ -48,7 +52,9 @@ export function LogViewToolbar({ alias, hasTimestampFormat }: LogViewToolbarProp
             <button
               type="button"
               className="text-xs hover:underline"
-              onClick={() => useSearchUiStore.getState().setTimeRange(alias, null, null)}
+              onClick={() =>
+                useSearchUiStore.getState().setTimeRange(alias, firstTimestamp, lastTimestamp)
+              }
             >
               Clear
             </button>

@@ -1,14 +1,18 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useLogViewToolbarStore } from "@/hooks/useLogViewToolbarStore";
 import { useSearchUiStore } from "@/hooks/useSearchUiStore";
 import { LogViewToolbar } from "./LogViewToolbar";
+
+const { useFileProperties } = vi.hoisted(() => ({ useFileProperties: vi.fn() }));
+vi.mock("@/hooks/useFileProperties", () => ({ useFileProperties }));
 
 describe("LogViewToolbar", () => {
   beforeEach(() => {
     useLogViewToolbarStore.setState({ slices: {} });
     useSearchUiStore.setState({ slices: {} });
+    useFileProperties.mockReturnValue({ data: undefined });
   });
 
   it("renders all controls within a single flex-wrap row (FR-001/FR-015)", () => {
@@ -32,8 +36,29 @@ describe("LogViewToolbar", () => {
     expect(screen.queryByRole("button", { name: "Clear" })).not.toBeInTheDocument();
   });
 
-  it("shows Clear when a time range is set and clears it via setTimeRange (FR-001)", async () => {
-    useSearchUiStore.getState().setTimeRange("app", 1000, 2000);
+  it("shows Clear when a time range is set and resets it to the file's first/last timestamps (FR-009)", async () => {
+    useFileProperties.mockReturnValue({
+      data: {
+        total_lines: 10,
+        has_timestamp_format: true,
+        available: true,
+        indexing_complete: true,
+        first_timestamp: 1000,
+        last_timestamp: 5000,
+      },
+    });
+    useSearchUiStore.getState().setTimeRange("app", 2000, 3000);
+    render(<LogViewToolbar alias="app" hasTimestampFormat={true} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+    expect(useSearchUiStore.getState().slices["app"].timeFrom).toBe(1000);
+    expect(useSearchUiStore.getState().slices["app"].timeTo).toBe(5000);
+  });
+
+  it("Clear empties the fields when the file's first/last timestamps are unknown (FR-010)", async () => {
+    useFileProperties.mockReturnValue({ data: undefined });
+    useSearchUiStore.getState().setTimeRange("app", 2000, 3000);
     render(<LogViewToolbar alias="app" hasTimestampFormat={true} />);
 
     await userEvent.click(screen.getByRole("button", { name: "Clear" }));

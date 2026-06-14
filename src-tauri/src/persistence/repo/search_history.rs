@@ -93,7 +93,7 @@ pub fn record(
 pub fn list_for_workspace(conn: &Connection, workspace_id: i64) -> Result<Vec<SearchHistoryEntry>> {
     let mut stmt = conn.prepare(
         "SELECT id, workspace_id, query, search_type, time_from, time_to, last_used_at \
-         FROM search_history_entries WHERE workspace_id = ?1 ORDER BY last_used_at DESC",
+         FROM search_history_entries WHERE workspace_id = ?1 ORDER BY last_used_at DESC, id DESC",
     )?;
     let rows = stmt.query_map(params![workspace_id], row_to_entry)?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
