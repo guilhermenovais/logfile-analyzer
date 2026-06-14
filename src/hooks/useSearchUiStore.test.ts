@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import type { SearchHistoryEntry, SearchMatchEntry } from "@/bindings";
+import { getLineSelectionSlice, useLineSelectionStore } from "./useLineSelectionStore";
 import {
   DEFAULT_SEARCH_UI_STATE,
   getSearchUiSlice,
@@ -14,6 +15,7 @@ const matches: SearchMatchEntry[] = [
 
 function reset() {
   useSearchUiStore.setState({ slices: {} });
+  useLineSelectionStore.setState({ slices: {} });
 }
 
 describe("useSearchUiStore", () => {
@@ -53,6 +55,12 @@ describe("useSearchUiStore", () => {
     expect(slice.scrollNonce).toBe(1);
   });
 
+  it("setResults also selects the first match's line in useLineSelectionStore (FR-010)", () => {
+    useSearchUiStore.getState().setResults("a", matches, true);
+
+    expect(getLineSelectionSlice("a").selectedLine).toBe(matches[0].line_index);
+  });
+
   it("setResults with no matches leaves currentMatchIndex at -1", () => {
     useSearchUiStore.getState().setResults("a", [], false);
 
@@ -62,6 +70,14 @@ describe("useSearchUiStore", () => {
     expect(slice.scrollNonce).toBe(1);
   });
 
+  it("setResults with no matches does not change selectedLine (FR-010)", () => {
+    useLineSelectionStore.getState().selectLine("a", 4);
+
+    useSearchUiStore.getState().setResults("a", [], false);
+
+    expect(getLineSelectionSlice("a").selectedLine).toBe(4);
+  });
+
   it("selectMatch sets currentMatchIndex and bumps scrollNonce", () => {
     useSearchUiStore.getState().setResults("a", matches, false);
     useSearchUiStore.getState().selectMatch("a", 2);
@@ -69,6 +85,13 @@ describe("useSearchUiStore", () => {
     const slice = getSearchUiSlice("a");
     expect(slice.currentMatchIndex).toBe(2);
     expect(slice.scrollNonce).toBe(2);
+  });
+
+  it("selectMatch also selects that match's line in useLineSelectionStore (FR-010)", () => {
+    useSearchUiStore.getState().setResults("a", matches, false);
+    useSearchUiStore.getState().selectMatch("a", 2);
+
+    expect(getLineSelectionSlice("a").selectedLine).toBe(matches[2].line_index);
   });
 
   it("nextMatch/prevMatch wrap around in line-number order (FR-017)", () => {
@@ -87,6 +110,16 @@ describe("useSearchUiStore", () => {
     // wraps from first to last
     useSearchUiStore.getState().prevMatch("a");
     expect(getSearchUiSlice("a").currentMatchIndex).toBe(2);
+  });
+
+  it("nextMatch/prevMatch also update selectedLine in useLineSelectionStore (FR-010)", () => {
+    useSearchUiStore.getState().setResults("a", matches, false);
+
+    useSearchUiStore.getState().nextMatch("a");
+    expect(getLineSelectionSlice("a").selectedLine).toBe(matches[1].line_index);
+
+    useSearchUiStore.getState().prevMatch("a");
+    expect(getLineSelectionSlice("a").selectedLine).toBe(matches[0].line_index);
   });
 
   it("closePanel hides the panel but leaves query/results/currentMatchIndex untouched (FR-008)", () => {

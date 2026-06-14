@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LogViewer } from "./LogViewer";
+import { useLineSelectionStore } from "@/hooks/useLineSelectionStore";
 import type { UseLogStreamResult } from "@/hooks/useLogStream";
 
 const { useLogStream, scrollToIndex } = vi.hoisted(() => ({
@@ -51,6 +52,10 @@ describe("LogViewer", () => {
   beforeEach(() => {
     useLogStream.mockReset();
     scrollToIndex.mockReset();
+    useLineSelectionStore.setState({ slices: {} });
+    vi.spyOn(window, "getSelection").mockReturnValue({
+      toString: () => "",
+    } as Selection);
   });
 
   it("renders streamed lines for the given alias", () => {
@@ -197,5 +202,65 @@ describe("LogViewer", () => {
     render(<LogViewer alias="app" scrollToLine={null} />);
 
     expect(scrollToIndex).not.toHaveBeenCalled();
+  });
+
+  it("selects a line on click and shows border-selected-line (FR-001/FR-002, normal view)", async () => {
+    useLogStream.mockReturnValue(
+      mockResult({
+        totalLines: 3,
+        lines: new Map([
+          [1, "first line"],
+          [2, "second line"],
+          [3, "third line"],
+        ]),
+      }),
+    );
+
+    render(<LogViewer alias="app" />);
+
+    await userEvent.click(screen.getByText("second line"));
+
+    expect(useLineSelectionStore.getState().slices["app"].selectedLine).toBe(
+      2,
+    );
+    expect(screen.getByText("second line").closest("div")).toHaveClass(
+      "border-selected-line",
+    );
+    expect(screen.getByText("first line").closest("div")).not.toHaveClass(
+      "border-selected-line",
+    );
+  });
+
+  it("selects a line on click in the 'Highlighted only' view (FR-017)", async () => {
+    useLogStream.mockReturnValue(
+      mockResult({
+        totalLines: 3,
+        lines: new Map([
+          [1, "first line"],
+          [2, "second line"],
+          [3, "third line"],
+        ]),
+      }),
+    );
+
+    render(
+      <LogViewer
+        alias="app"
+        highlightedOnly={true}
+        highlights={[
+          { line_index: 1, content: "first line", label: null, origin: "user" },
+          { line_index: 3, content: "third line", label: null, origin: "user" },
+        ]}
+      />,
+    );
+
+    await userEvent.click(screen.getByText("third line"));
+
+    expect(useLineSelectionStore.getState().slices["app"].selectedLine).toBe(
+      3,
+    );
+    expect(screen.getByText("third line").closest("div")).toHaveClass(
+      "border-selected-line",
+    );
   });
 });

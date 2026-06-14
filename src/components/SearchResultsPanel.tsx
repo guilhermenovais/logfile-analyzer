@@ -1,4 +1,7 @@
+import { useEffect, useRef } from "react";
+import { useLineSelectionStore } from "@/hooks/useLineSelectionStore";
 import { useSearchUiStore } from "@/hooks/useSearchUiStore";
+import { cn } from "@/lib/utils";
 
 export interface SearchResultsPanelProps {
   /** Alias of the file whose `useSearchUiStore` slice this panel reflects. */
@@ -19,6 +22,23 @@ export function SearchResultsPanel({ alias }: SearchResultsPanelProps) {
         currentMatchIndex: -1,
       },
   );
+  const selectedLine = useLineSelectionStore(
+    (state) => state.slices[alias]?.selectedLine ?? null,
+  );
+  const navNonce = useLineSelectionStore(
+    (state) => state.slices[alias]?.navNonce ?? 0,
+  );
+
+  const entryRefs = useRef(new Map<number, HTMLButtonElement>());
+
+  useEffect(() => {
+    if (navNonce === 0 || selectedLine === null) {
+      return;
+    }
+    entryRefs.current.get(selectedLine)?.scrollIntoView({ block: "nearest" });
+    // Only `navNonce` (arrow-key navigation, FR-013) should (re-)trigger this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navNonce]);
 
   return (
     <div className="flex flex-col gap-2 border-b p-2">
@@ -71,8 +91,19 @@ export function SearchResultsPanel({ alias }: SearchResultsPanelProps) {
           {results.map((match, index) => (
             <li key={match.line_index}>
               <button
+                ref={(element) => {
+                  if (element) {
+                    entryRefs.current.set(match.line_index, element);
+                  } else {
+                    entryRefs.current.delete(match.line_index);
+                  }
+                }}
                 type="button"
-                className="flex w-full items-start gap-2 text-left hover:bg-accent"
+                className={cn(
+                  "flex w-full items-start gap-2 text-left hover:bg-accent",
+                  match.line_index === selectedLine &&
+                    "border-2 border-selected-line",
+                )}
                 onClick={() =>
                   useSearchUiStore.getState().selectMatch(alias, index)
                 }

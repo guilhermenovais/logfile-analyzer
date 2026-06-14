@@ -22,6 +22,7 @@ pub enum TimestampFormat {
     Iso8601,
     EpochSeconds,
     EpochMillis,
+    SpaceSeparated,
 }
 
 /// The detected timestamp pattern for a file (data-model.md

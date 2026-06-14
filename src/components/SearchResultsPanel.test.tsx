@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useLineSelectionStore } from "@/hooks/useLineSelectionStore";
 import { useSearchUiStore } from "@/hooks/useSearchUiStore";
 import { SearchResultsPanel } from "./SearchResultsPanel";
 
@@ -13,6 +14,7 @@ const matches = [
 describe("SearchResultsPanel", () => {
   beforeEach(() => {
     useSearchUiStore.setState({ slices: {} });
+    useLineSelectionStore.setState({ slices: {} });
   });
 
   it("renders one row per match with line number and content (no context, FR-001)", () => {
@@ -100,5 +102,72 @@ describe("SearchResultsPanel", () => {
     );
 
     expect(useSearchUiStore.getState().slices["app"].currentMatchIndex).toBe(2);
+  });
+
+  it("shows border-selected-line on the entry matching selectedLine (FR-008/FR-009)", () => {
+    useSearchUiStore.getState().setResults("app", matches, false);
+    useLineSelectionStore.getState().selectLine("app", matches[1].line_index);
+
+    render(<SearchResultsPanel alias="app" />);
+
+    const selectedRow = screen.getByText(matches[1].content).closest("button");
+    expect(selectedRow).toHaveClass("border-selected-line");
+
+    const otherRow = screen.getByText(matches[0].content).closest("button");
+    expect(otherRow).not.toHaveClass("border-selected-line");
+  });
+
+  it("shows no selection indicator when selectedLine is not among results (FR-008/FR-009)", () => {
+    useSearchUiStore.getState().setResults("app", matches, false);
+    useLineSelectionStore.getState().selectLine("app", 999);
+
+    render(<SearchResultsPanel alias="app" />);
+
+    for (const match of matches) {
+      const row = screen.getByText(match.content).closest("button");
+      expect(row).not.toHaveClass("border-selected-line");
+    }
+  });
+
+  describe("scroll-follow on navNonce changes (US4, FR-013)", () => {
+    beforeEach(() => {
+      Element.prototype.scrollIntoView = vi.fn();
+    });
+
+    it("scrolls the matching entry into view when the new selectedLine is a result (FR-013)", () => {
+      useSearchUiStore.getState().setResults("app", matches, false);
+
+      const { rerender } = render(<SearchResultsPanel alias="app" />);
+
+      // matches[0].line_index is selected by setResults; move to matches[1].line_index.
+      useLineSelectionStore
+        .getState()
+        .moveSelection("app", 1, 100, matches[0].line_index);
+      rerender(<SearchResultsPanel alias="app" />);
+
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({
+        block: "nearest",
+      });
+      expect(screen.getByText(matches[1].content).closest("button")).toHaveClass(
+        "border-selected-line",
+      );
+    });
+
+    it("does not scroll, and leaves the indicator unchanged, when the new selectedLine is not a result (FR-013)", () => {
+      useSearchUiStore.getState().setResults("app", matches, false);
+
+      const { rerender } = render(<SearchResultsPanel alias="app" />);
+
+      // setResults selected matches[0].line_index (2); move down to line 1,
+      // which is not among the results.
+      useLineSelectionStore.getState().moveSelection("app", -1, 100, 50);
+      rerender(<SearchResultsPanel alias="app" />);
+
+      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+      for (const match of matches) {
+        const row = screen.getByText(match.content).closest("button");
+        expect(row).not.toHaveClass("border-selected-line");
+      }
+    });
   });
 });
