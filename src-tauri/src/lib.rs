@@ -30,6 +30,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         workspace::create_workspace,
         workspace::get_active_workspace,
         workspace::save_workspace,
+        workspace::rename_workspace,
         workspace::discard_draft,
         workspace::list_saved_workspaces,
         workspace::open_workspace,

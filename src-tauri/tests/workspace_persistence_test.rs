@@ -72,6 +72,55 @@ fn save_workspace_rejects_alias_collision() {
 }
 
 #[test]
+fn rename_workspace_renames_active_draft_and_keeps_files() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+
+    let path = write_temp_file("a", b"line one\n");
+    files::add_file(state.clone(), path.to_string_lossy().into_owned(), None).unwrap();
+
+    let renamed = workspace::rename_workspace(state.clone(), "my-investigation".into()).unwrap();
+
+    assert_eq!(renamed.alias, Some("my-investigation".to_string()));
+    assert!(renamed.is_draft);
+    assert_eq!(renamed.files.len(), 1);
+}
+
+#[test]
+fn rename_workspace_renames_active_saved_workspace_without_changing_is_draft() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+
+    workspace::save_workspace(state.clone(), "original-name".into()).unwrap();
+
+    let renamed = workspace::rename_workspace(state.clone(), "renamed".into()).unwrap();
+
+    assert_eq!(renamed.alias, Some("renamed".to_string()));
+    assert!(!renamed.is_draft);
+}
+
+#[test]
+fn rename_workspace_rejects_empty_or_whitespace_alias() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+
+    let err = workspace::rename_workspace(state.clone(), "   ".into()).unwrap_err();
+    assert!(matches!(err, AppError::InvalidWorkspaceName));
+}
+
+#[test]
+fn rename_workspace_rejects_alias_collision() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+
+    workspace::save_workspace(state.clone(), "taken".into()).unwrap();
+    workspace::create_workspace(state.clone()).unwrap();
+
+    let err = workspace::rename_workspace(state.clone(), "taken".into()).unwrap_err();
+    assert!(matches!(err, AppError::WorkspaceAliasInUse));
+}
+
+#[test]
 fn discard_draft_clears_files_and_starts_fresh_draft() {
     let app = mock_app();
     let state = app.state::<Arc<AppState>>();

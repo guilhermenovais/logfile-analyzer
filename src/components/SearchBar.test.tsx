@@ -235,4 +235,34 @@ describe("SearchBar", () => {
       expect(screen.getByLabelText("Search query")).toHaveValue("err.*");
     });
   });
+
+  describe("control heights (US3/FR-017)", () => {
+    it("gives the search type select, query input, and search button a shared height and text size", () => {
+      useSearch.mockReturnValue(mockResult());
+
+      render(<SearchBar alias="app" hasTimestampFormat={false} />);
+
+      expect(screen.getByLabelText("Search type")).toHaveClass("h-9", "text-sm");
+      expect(screen.getByLabelText("Search query")).toHaveClass("h-9", "text-sm");
+      expect(screen.getByRole("button", { name: "Search" })).toHaveClass(
+        "h-9",
+        "text-sm",
+      );
+    });
+
+    it("renders the history icon button as a matching square with a centered icon", () => {
+      useSearch.mockReturnValue(mockResult());
+
+      render(<SearchBar alias="app" hasTimestampFormat={false} />);
+
+      expect(screen.getByRole("button", { name: /search history/i })).toHaveClass(
+        "h-9",
+        "w-9",
+        "text-sm",
+        "flex",
+        "items-center",
+        "justify-center",
+      );
+    });
+  });
 });

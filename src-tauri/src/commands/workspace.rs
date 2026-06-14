@@ -148,6 +148,31 @@ pub fn save_workspace(state: State<'_, Arc<AppState>>, alias: String) -> Result<
     })
 }
 
+/// Renames the active workspace to `alias` without changing its draft status
+/// (FR-0xx). Rejects with `InvalidWorkspaceName` if `alias` is empty/whitespace,
+/// or `WorkspaceAliasInUse` on collision.
+#[tauri::command]
+#[specta::specta]
+pub fn rename_workspace(
+    state: State<'_, Arc<AppState>>,
+    alias: String,
+) -> Result<WorkspaceSummary> {
+    let workspace_id = *state.active_workspace_id.lock().unwrap();
+    let ws = {
+        let db = state.db.lock().unwrap();
+        workspace::rename(&db, workspace_id, &alias)?
+    };
+
+    let files = list_file_summaries(&state)?;
+
+    Ok(WorkspaceSummary {
+        id: ws.id as i32,
+        alias: ws.alias,
+        is_draft: ws.is_draft,
+        files,
+    })
+}
+
 /// Drops the unsaved draft and starts a fresh one (FR-007).
 #[tauri::command]
 #[specta::specta]

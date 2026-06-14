@@ -80,7 +80,7 @@ export function SearchBar({ alias, hasTimestampFormat }: SearchBarProps) {
       <form onSubmit={handleSubmit} className="flex items-center gap-2">
         <div className="relative flex-1">
           <input
-            className="w-full rounded border px-2 py-1 text-sm"
+            className="h-9 w-full rounded border px-2 text-sm"
             placeholder={
               searchType === "logical" ? '"error" AND "db"' : "err.*"
             }
@@ -128,7 +128,7 @@ export function SearchBar({ alias, hasTimestampFormat }: SearchBarProps) {
         </div>
         <select
           aria-label="Search type"
-          className="rounded border px-2 py-1 text-sm"
+          className="h-9 rounded border px-2 text-sm"
           value={searchType}
           onChange={(event) =>
             alias &&
@@ -144,14 +144,14 @@ export function SearchBar({ alias, hasTimestampFormat }: SearchBarProps) {
         <button
           type="submit"
           disabled={!alias || isSearching || query.trim() === ""}
-          className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground disabled:opacity-50"
+          className="h-9 rounded bg-primary px-2 text-sm text-primary-foreground disabled:opacity-50"
         >
           Search
         </button>
         <button
           type="button"
           aria-label="Search history"
-          className="rounded p-1 hover:bg-accent disabled:opacity-50"
+          className="flex h-9 w-9 items-center justify-center rounded text-sm hover:bg-accent disabled:opacity-50"
           onClick={() => setHistoryOpen(true)}
           disabled={!alias}
         >

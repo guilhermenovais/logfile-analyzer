@@ -7,6 +7,7 @@ import {
   isWorkspaceDirty,
   listSavedWorkspaces,
   openWorkspace,
+  renameWorkspace,
   saveWorkspace,
 } from "@/ipc/workspace";
 
@@ -50,6 +51,17 @@ export function useSaveWorkspace() {
       queryClient.setQueryData(workspaceQueryKey, workspace);
       void queryClient.invalidateQueries({ queryKey: workspaceDirtyQueryKey });
       void queryClient.invalidateQueries({ queryKey: savedWorkspacesQueryKey });
+    },
+  });
+}
+
+/** Renames the active workspace without changing its draft status (FR-012/FR-013). */
+export function useRenameWorkspace() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: renameWorkspace,
+    onSuccess: (workspace) => {
+      queryClient.setQueryData(workspaceQueryKey, workspace);
     },
   });
 }
