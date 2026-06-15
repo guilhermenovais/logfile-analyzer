@@ -8,7 +8,7 @@ use tauri::State;
 
 use crate::commands::types::{FileProperties, LineContent, LogFileSummary};
 use crate::error::{AppError, Result};
-use crate::logfile::{mmap_index, timestamp};
+use crate::logfile::{mmap_index, timestamp, view_filter};
 use crate::persistence::repo::{log_file_entry, workspace};
 use crate::state::{AppState, FileIndex, FileRuntime, IndexState};
 
@@ -24,6 +24,8 @@ pub(crate) fn index_and_detect_timestamps(app_state: &AppState, runtime: &FileRu
         let db = app_state.db.lock().unwrap();
         let _ = log_file_entry::set_has_timestamp_format(&db, runtime.file_id, true);
     }
+
+    runtime.index.write().unwrap().timestamp_detection_complete = true;
 }
 
 /// Default alias for a newly added file: its file name without extension
@@ -115,6 +117,7 @@ pub fn add_file(
         file_id: entry.id,
         mmap,
         index: RwLock::new(FileIndex::default()),
+        view_filter: RwLock::new(None),
     });
 
     state
@@ -147,13 +150,12 @@ pub fn list_files(state: State<'_, Arc<AppState>>) -> Result<Vec<LogFileSummary>
 
 /// Returns the epoch-ms of the first and last `Some` entries of
 /// `line_timestamps`, in line order, or `(None, None)` if absent or empty
-/// (research.md §5).
+/// (research.md §5, data-model.md §4).
 fn line_timestamp_bounds(line_timestamps: &Option<Vec<Option<i64>>>) -> (Option<f64>, Option<f64>) {
     let Some(timestamps) = line_timestamps else {
         return (None, None);
     };
-    let first = timestamps.iter().flatten().next().copied();
-    let last = timestamps.iter().flatten().next_back().copied();
+    let (first, last) = view_filter::timestamp_bounds(timestamps);
     (first.map(|ms| ms as f64), last.map(|ms| ms as f64))
 }
 
@@ -169,27 +171,35 @@ pub(crate) fn file_properties(state: &AppState, alias: &str) -> Result<FilePrope
     .ok_or(AppError::FileNotFound)?;
 
     let files = state.files.read().unwrap();
-    let (available, indexing_complete, total_lines, first_timestamp, last_timestamp) =
-        match files.get(alias) {
-            Some(runtime) => {
-                let index = runtime.index.read().unwrap();
-                let indexing_complete = index.state == IndexState::Ready;
-                let (first_timestamp, last_timestamp) =
-                    if entry.has_timestamp_format && indexing_complete {
-                        line_timestamp_bounds(&index.line_timestamps)
-                    } else {
-                        (None, None)
-                    };
-                (
-                    true,
-                    indexing_complete,
-                    index.total_lines,
-                    first_timestamp,
-                    last_timestamp,
-                )
-            }
-            None => (false, false, 0, None, None),
-        };
+    let (
+        available,
+        indexing_complete,
+        total_lines,
+        first_timestamp,
+        last_timestamp,
+        timestamp_offset_minutes,
+    ) = match files.get(alias) {
+        Some(runtime) => {
+            let index = runtime.index.read().unwrap();
+            let indexing_complete =
+                index.state == IndexState::Ready && index.timestamp_detection_complete;
+            let (first_timestamp, last_timestamp) =
+                if entry.has_timestamp_format && indexing_complete {
+                    line_timestamp_bounds(&index.line_timestamps)
+                } else {
+                    (None, None)
+                };
+            (
+                true,
+                indexing_complete,
+                index.total_lines,
+                first_timestamp,
+                last_timestamp,
+                index.utc_offset_minutes,
+            )
+        }
+        None => (false, false, 0, None, None, 0),
+    };
 
     Ok(FileProperties {
         total_lines: total_lines as u32,
@@ -198,6 +208,7 @@ pub(crate) fn file_properties(state: &AppState, alias: &str) -> Result<FilePrope
         indexing_complete,
         first_timestamp,
         last_timestamp,
+        timestamp_offset_minutes,
     })
 }
 

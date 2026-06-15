@@ -8,18 +8,59 @@ use tauri::ipc::Channel;
 use tauri::State;
 
 use crate::commands::files::resolve_runtime;
-use crate::commands::types::{IndexProgress, LineBatch};
+use crate::commands::types::{IndexProgress, LineBatch, LineContent};
 use crate::error::{AppError, Result};
-use crate::logfile::mmap_index;
+use crate::logfile::{mmap_index, view_filter};
 use crate::state::{AppState, IndexState};
 
 /// Soft cap on the serialized size of a single `LineBatch` (Principle VI:
 /// streamed payloads must stay under ~100KB).
 const MAX_BATCH_BYTES: usize = 64 * 1024;
 
-/// Streams `count` lines starting at the 1-based `start_index`, in batches
-/// under [`MAX_BATCH_BYTES`]. Works incrementally while indexing is still in
-/// progress (FR-014).
+/// Recomputes and caches `runtime.view_filter` for `alias` under
+/// `[time_from, time_to]` (epoch-ms, inclusive bounds), and returns the new
+/// visible line count — the value `LogViewer`'s virtualizer should use as
+/// `count` (FR-001–FR-005, data-model.md §3, contracts/main-view-time-filter.md §1).
+#[tauri::command]
+#[specta::specta]
+pub async fn set_view_time_range(
+    state: State<'_, Arc<AppState>>,
+    alias: String,
+    time_from: Option<f64>,
+    time_to: Option<f64>,
+) -> Result<u32> {
+    let runtime = resolve_runtime(&state, &alias)?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let index = runtime.index.read().unwrap();
+        let effective_timestamps = index.effective_timestamps.as_deref().unwrap_or(&[]);
+        let (first_ts, last_ts) = view_filter::timestamp_bounds(effective_timestamps);
+        let total_lines = index.total_lines;
+
+        let visible = view_filter::visible_line_indices(
+            total_lines,
+            effective_timestamps,
+            first_ts,
+            last_ts,
+            time_from.map(|v| v as i64),
+            time_to.map(|v| v as i64),
+        );
+        let count = visible
+            .as_ref()
+            .map_or(total_lines as u32, |v| v.len() as u32);
+
+        *runtime.view_filter.write().unwrap() = visible;
+        count
+    })
+    .await
+    .map_err(|err| AppError::Io(err.to_string()))
+}
+
+/// Streams `count` lines starting at the 1-based **view-row** `start_index`,
+/// in batches under [`MAX_BATCH_BYTES`]. Works incrementally while indexing
+/// is still in progress (FR-014). When `runtime.view_filter` is `Some`, only
+/// the cached visible file line indices are addressed, in order
+/// (FR-001–FR-005, contracts/main-view-time-filter.md §2).
 #[tauri::command]
 #[specta::specta]
 pub fn stream_lines(
@@ -41,21 +82,30 @@ pub fn stream_lines(
         index.line_offsets.len().saturating_sub(1)
     };
 
+    let view_filter = runtime.view_filter.read().unwrap();
+    let total_visible = view_filter.as_ref().map_or(available, Vec::len);
+
     let start = (start_index as usize).max(1);
     let end = (start_index as usize)
         .saturating_add(count as usize)
-        .min(available + 1);
+        .min(total_visible + 1);
 
     let mut batch = Vec::new();
     let mut batch_size = 0usize;
     let mut batch_first = start;
 
-    for line_index in start..end {
+    for view_row in start..end {
+        let line_index = view_filter
+            .as_ref()
+            .map_or(view_row, |v| v[view_row - 1] as usize);
         let content = mmap_index::line_bytes(&runtime.mmap, &index.line_offsets, line_index)
             .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
             .unwrap_or_default();
         batch_size += content.len();
-        batch.push(content);
+        batch.push(LineContent {
+            line_index: line_index as u32,
+            content,
+        });
 
         if batch_size >= MAX_BATCH_BYTES {
             channel
@@ -65,7 +115,7 @@ pub fn stream_lines(
                 })
                 .map_err(|err| AppError::Io(err.to_string()))?;
             batch_size = 0;
-            batch_first = line_index + 1;
+            batch_first = view_row + 1;
         }
     }
 

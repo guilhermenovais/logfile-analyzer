@@ -4,15 +4,28 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useLogViewToolbarStore } from "@/hooks/useLogViewToolbarStore";
 import { useSearchUiStore } from "@/hooks/useSearchUiStore";
 import { LogViewToolbar } from "./LogViewToolbar";
+import type { TimeRangeFieldProps } from "./TimeRangeField";
 
 const { useFileProperties } = vi.hoisted(() => ({ useFileProperties: vi.fn() }));
 vi.mock("@/hooks/useFileProperties", () => ({ useFileProperties }));
+
+const { TimeRangeField } = vi.hoisted(() => ({
+  TimeRangeField: vi.fn(({ label, value }: TimeRangeFieldProps) => (
+    <input
+      aria-label={`Time range ${label.toLowerCase()}`}
+      value={value ?? ""}
+      readOnly
+    />
+  )),
+}));
+vi.mock("./TimeRangeField", () => ({ TimeRangeField }));
 
 describe("LogViewToolbar", () => {
   beforeEach(() => {
     useLogViewToolbarStore.setState({ slices: {} });
     useSearchUiStore.setState({ slices: {} });
     useFileProperties.mockReturnValue({ data: undefined });
+    TimeRangeField.mockClear();
   });
 
   it("renders all controls within a single flex-wrap row (FR-001/FR-015)", () => {
@@ -45,6 +58,7 @@ describe("LogViewToolbar", () => {
         indexing_complete: true,
         first_timestamp: 1000,
         last_timestamp: 5000,
+        timestamp_offset_minutes: 0,
       },
     });
     useSearchUiStore.getState().setTimeRange("app", 2000, 3000);
@@ -78,6 +92,40 @@ describe("LogViewToolbar", () => {
     expect(
       screen.getByRole("button", { name: /show highlights/i }),
     ).toBeInTheDocument();
+  });
+
+  it("passes offsetMinutes from fileProperties.timestamp_offset_minutes to both TimeRangeField instances (FR-008)", () => {
+    useFileProperties.mockReturnValue({
+      data: {
+        total_lines: 10,
+        has_timestamp_format: true,
+        available: true,
+        indexing_complete: true,
+        first_timestamp: 1000,
+        last_timestamp: 5000,
+        timestamp_offset_minutes: 120,
+      },
+    });
+
+    render(<LogViewToolbar alias="app" hasTimestampFormat={true} />);
+
+    const calls = TimeRangeField.mock.calls;
+    const fromProps = calls.find((call) => call[0]?.label === "From")?.[0];
+    const toProps = calls.find((call) => call[0]?.label === "To")?.[0];
+
+    expect(fromProps?.offsetMinutes).toBe(120);
+    expect(toProps?.offsetMinutes).toBe(120);
+  });
+
+  it("defaults offsetMinutes to 0 when fileProperties is unavailable (FR-008)", () => {
+    render(<LogViewToolbar alias="app" hasTimestampFormat={true} />);
+
+    const calls = TimeRangeField.mock.calls;
+    const fromProps = calls.find((call) => call[0]?.label === "From")?.[0];
+    const toProps = calls.find((call) => call[0]?.label === "To")?.[0];
+
+    expect(fromProps?.offsetMinutes).toBe(0);
+    expect(toProps?.offsetMinutes).toBe(0);
   });
 
   it("the Highlighted only checkbox reflects and updates highlightedOnly, independent of the show/hide button (FR-006)", async () => {

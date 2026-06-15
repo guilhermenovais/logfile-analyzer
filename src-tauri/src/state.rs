@@ -43,6 +43,18 @@ pub struct FileIndex {
     pub state: IndexState,
     pub timestamp_profile: Option<TimestampFormatProfile>,
     pub line_timestamps: Option<Vec<Option<i64>>>,
+    /// `line_timestamps[i]` if `Some`, else the nearest preceding `Some`
+    /// value (carry-forward). Drives FR-004 inheritance for both main-view
+    /// filtering and `filter_by_time_range` (data-model.md §1).
+    pub effective_timestamps: Option<Vec<Option<i64>>>,
+    /// The file's detected log-timestamp UTC offset in minutes (FR-008).
+    /// `0` (UTC) unless the detected format is `Iso8601` and a sampled line
+    /// carries an explicit offset (data-model.md §1).
+    pub utc_offset_minutes: i32,
+    /// Set once `detect_and_parse` has returned, regardless of whether a
+    /// format was detected. Decouples "timestamp detection settled" from
+    /// `state == Ready` (data-model.md §1, research.md §2.2).
+    pub timestamp_detection_complete: bool,
 }
 
 /// Per-open-file engine state backing viewing, search, get-line, and
@@ -51,6 +63,12 @@ pub struct FileRuntime {
     pub file_id: i64,
     pub mmap: Mmap,
     pub index: RwLock<FileIndex>,
+    /// `None` = identity (all lines visible, in file order). `Some(indices)`
+    /// = the ordered 1-based file line indices visible under the currently
+    /// committed time range (FR-001–FR-005), set by `set_view_time_range`.
+    /// Guarded by its own lock since it's recomputed far more often (every
+    /// range commit) than `FileIndex` changes (data-model.md §2).
+    pub view_filter: RwLock<Option<Vec<u32>>>,
 }
 
 /// Shared application state: the single active workspace and the in-memory

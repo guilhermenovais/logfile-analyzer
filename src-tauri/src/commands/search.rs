@@ -69,10 +69,10 @@ pub fn search(
 
     let mut match_indices = scan_matches(&runtime.mmap, &index.line_offsets, &compiled);
     if time_from.is_some() || time_to.is_some() {
-        let line_timestamps = index.line_timestamps.as_deref().unwrap_or(&[]);
+        let effective_timestamps = index.effective_timestamps.as_deref().unwrap_or(&[]);
         match_indices = lf_query::filter_by_time_range(
             match_indices,
-            line_timestamps,
+            effective_timestamps,
             time_from.map(|v| v as i64),
             time_to.map(|v| v as i64),
         );
@@ -140,7 +140,7 @@ pub fn search_with_context(
 
     let time_filter = if time_from.is_some() || time_to.is_some() {
         Some((
-            index.line_timestamps.as_deref().unwrap_or(&[]),
+            index.effective_timestamps.as_deref().unwrap_or(&[]),
             time_from.map(|v| v as i64),
             time_to.map(|v| v as i64),
         ))

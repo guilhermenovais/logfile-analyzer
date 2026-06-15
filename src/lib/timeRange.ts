@@ -2,17 +2,27 @@ export function pad(value: number): string {
   return value.toString().padStart(2, "0");
 }
 
-/** Formats epoch-ms as `YYYY-MM-DD HH:mm` in local time (research.md §4). */
-export function formatLocal(epochMs: number): string {
-  const date = new Date(epochMs);
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+/**
+ * Formats epoch-ms as `YYYY-MM-DD HH:mm`, the wall-clock time in
+ * `UTC+offsetMinutes` (contracts/file-properties-and-timezone.md §3). For
+ * `offsetMinutes = 0` this is the UTC wall-clock time, not the browser's
+ * local time.
+ */
+export function formatInOffset(epochMs: number, offsetMinutes: number): string {
+  const date = new Date(epochMs + offsetMinutes * 60_000);
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
 }
 
-const LOCAL_FORMAT = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/;
+const TIME_RANGE_FORMAT = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/;
 
-/** Parses a `YYYY-MM-DD HH:mm` string to epoch-ms, or `null` if invalid (research.md §4). */
-export function parseLocal(text: string): number | null {
-  const match = LOCAL_FORMAT.exec(text.trim());
+/**
+ * Parses a `YYYY-MM-DD HH:mm` string as a wall-clock time in
+ * `UTC+offsetMinutes`, returning epoch-ms, or `null` if `text` doesn't match
+ * the format or fails the Y/M/D/H/M round-trip validation (inverse of
+ * `formatInOffset`, contracts/file-properties-and-timezone.md §3).
+ */
+export function parseInOffset(text: string, offsetMinutes: number): number | null {
+  const match = TIME_RANGE_FORMAT.exec(text.trim());
   if (!match) {
     return null;
   }
@@ -24,24 +34,32 @@ export function parseLocal(text: string): number | null {
     number,
     number,
   ];
-  const date = new Date(year, month - 1, day, hour, minute);
+  const utcMs = Date.UTC(year, month - 1, day, hour, minute);
+  const date = new Date(utcMs);
   if (
-    date.getFullYear() !== year ||
-    date.getMonth() !== month - 1 ||
-    date.getDate() !== day ||
-    date.getHours() !== hour ||
-    date.getMinutes() !== minute
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day ||
+    date.getUTCHours() !== hour ||
+    date.getUTCMinutes() !== minute
   ) {
     return null;
   }
-  return date.getTime();
+  return utcMs - offsetMinutes * 60_000;
 }
 
 /**
- * Combines `date`'s year/month/day with `hour`/`minute`, returning epoch-ms.
+ * Combines `date`'s local year/month/day (a wall-clock date in
+ * `UTC+offsetMinutes`, e.g. from the picker seeding in `TimeRangeField`) with
+ * `hour`/`minute`, returning the corresponding epoch-ms under the same
+ * `UTC+offsetMinutes` interpretation (contracts/file-properties-and-timezone.md §3).
  */
-export function combine(date: Date, hour: number, minute: number): number {
-  const combined = new Date(date);
-  combined.setHours(hour, minute, 0, 0);
-  return combined.getTime();
+export function combineInOffset(
+  date: Date,
+  hour: number,
+  minute: number,
+  offsetMinutes: number,
+): number {
+  const utcMs = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute);
+  return utcMs - offsetMinutes * 60_000;
 }

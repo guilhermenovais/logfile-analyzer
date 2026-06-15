@@ -3,11 +3,17 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LogViewer } from "./LogViewer";
 import { useLineSelectionStore } from "@/hooks/useLineSelectionStore";
+import {
+  DEFAULT_SEARCH_UI_STATE,
+  useSearchUiStore,
+} from "@/hooks/useSearchUiStore";
 import type { UseLogStreamResult } from "@/hooks/useLogStream";
+import type { LineContent } from "@/bindings";
 
-const { useLogStream, scrollToIndex } = vi.hoisted(() => ({
+const { useLogStream, scrollToIndex, scrollToOffset } = vi.hoisted(() => ({
   useLogStream: vi.fn(),
   scrollToIndex: vi.fn(),
+  scrollToOffset: vi.fn(),
 }));
 
 vi.mock("@/hooks/useLogStream", () => ({ useLogStream }));
@@ -34,16 +40,27 @@ vi.mock("@tanstack/react-virtual", () => ({
       getVirtualItems: () => items,
       getTotalSize: () => count * size,
       scrollToIndex,
+      scrollToOffset,
     };
   },
 }));
+
+function lineContentMap(entries: [number, LineContent][]): Map<number, LineContent> {
+  return new Map(entries);
+}
+
+function content(lineIndex: number, text: string): LineContent {
+  return { line_index: lineIndex, content: text };
+}
 
 function mockResult(overrides: Partial<UseLogStreamResult> = {}): UseLogStreamResult {
   return {
     lines: new Map(),
     totalLines: 0,
+    fileTotalLines: 0,
     indexingComplete: true,
     loadRange: vi.fn(),
+    viewVersion: 0,
     ...overrides,
   };
 }
@@ -52,7 +69,9 @@ describe("LogViewer", () => {
   beforeEach(() => {
     useLogStream.mockReset();
     scrollToIndex.mockReset();
+    scrollToOffset.mockReset();
     useLineSelectionStore.setState({ slices: {} });
+    useSearchUiStore.setState({ slices: {} });
     vi.spyOn(window, "getSelection").mockReturnValue({
       toString: () => "",
     } as Selection);
@@ -62,20 +81,34 @@ describe("LogViewer", () => {
     useLogStream.mockReturnValue(
       mockResult({
         totalLines: 3,
-        lines: new Map([
-          [1, "first line"],
-          [2, "second line"],
-          [3, "third line"],
+        fileTotalLines: 3,
+        lines: lineContentMap([
+          [1, content(1, "first line")],
+          [2, content(2, "second line")],
+          [3, content(3, "third line")],
         ]),
       }),
     );
 
-    render(<LogViewer alias="app" wrap={false} />);
+    render(<LogViewer alias="app" wrap={false} hasTimestampFormat={false} />);
 
-    expect(useLogStream).toHaveBeenCalledWith("app");
+    expect(useLogStream).toHaveBeenCalledWith("app", null, null, false);
     expect(screen.getByText("first line")).toBeInTheDocument();
     expect(screen.getByText("second line")).toBeInTheDocument();
     expect(screen.getByText("third line")).toBeInTheDocument();
+  });
+
+  it("passes timeFrom/timeTo from useSearchUiStore into useLogStream", () => {
+    useSearchUiStore.setState({
+      slices: {
+        app: { ...DEFAULT_SEARCH_UI_STATE, timeFrom: 1000, timeTo: 2000 },
+      },
+    });
+    useLogStream.mockReturnValue(mockResult());
+
+    render(<LogViewer alias="app" wrap={false} hasTimestampFormat={true} />);
+
+    expect(useLogStream).toHaveBeenCalledWith("app", 1000, 2000, true);
   });
 
   it("requests the visible range on mount via loadRange", () => {
@@ -83,34 +116,72 @@ describe("LogViewer", () => {
     useLogStream.mockReturnValue(
       mockResult({
         totalLines: 3,
-        lines: new Map([
-          [1, "first line"],
-          [2, "second line"],
-          [3, "third line"],
+        fileTotalLines: 3,
+        lines: lineContentMap([
+          [1, content(1, "first line")],
+          [2, content(2, "second line")],
+          [3, content(3, "third line")],
         ]),
         loadRange,
       }),
     );
 
-    render(<LogViewer alias="app" wrap={false} />);
+    render(<LogViewer alias="app" wrap={false} hasTimestampFormat={false} />);
 
     expect(loadRange).toHaveBeenCalled();
+  });
+
+  it("resets scroll to the top and reloads the visible range when viewVersion changes", () => {
+    const firstLoadRange = vi.fn();
+    useLogStream.mockReturnValue(
+      mockResult({
+        totalLines: 100,
+        fileTotalLines: 100,
+        loadRange: firstLoadRange,
+        viewVersion: 0,
+      }),
+    );
+
+    const { rerender } = render(
+      <LogViewer alias="app" wrap={false} hasTimestampFormat={true} />,
+    );
+
+    scrollToOffset.mockClear();
+    firstLoadRange.mockClear();
+
+    const secondLoadRange = vi.fn();
+    useLogStream.mockReturnValue(
+      mockResult({
+        totalLines: 10,
+        fileTotalLines: 100,
+        loadRange: secondLoadRange,
+        viewVersion: 1,
+      }),
+    );
+
+    rerender(<LogViewer alias="app" wrap={false} hasTimestampFormat={true} />);
+
+    expect(scrollToOffset).toHaveBeenCalledWith(0);
+    expect(secondLoadRange).toHaveBeenCalled();
   });
 
   it("renders lines with whiteSpace driven by the wrap prop", () => {
     useLogStream.mockReturnValue(
       mockResult({
         totalLines: 1,
-        lines: new Map([[1, "a very long line of log output"]]),
+        fileTotalLines: 1,
+        lines: lineContentMap([[1, content(1, "a very long line of log output")]]),
       }),
     );
 
-    const { rerender } = render(<LogViewer alias="app" wrap={false} />);
+    const { rerender } = render(
+      <LogViewer alias="app" wrap={false} hasTimestampFormat={false} />,
+    );
 
     const line = screen.getByText("a very long line of log output");
     expect(line).toHaveStyle({ whiteSpace: "pre" });
 
-    rerender(<LogViewer alias="app" wrap={true} />);
+    rerender(<LogViewer alias="app" wrap={true} hasTimestampFormat={false} />);
 
     expect(line).toHaveStyle({ whiteSpace: "pre-wrap" });
   });
@@ -119,15 +190,23 @@ describe("LogViewer", () => {
     useLogStream.mockReturnValue(
       mockResult({
         totalLines: 3,
-        lines: new Map([
-          [1, "first line"],
-          [2, "second line"],
-          [3, "third line"],
+        fileTotalLines: 3,
+        lines: lineContentMap([
+          [1, content(1, "first line")],
+          [2, content(2, "second line")],
+          [3, content(3, "third line")],
         ]),
       }),
     );
 
-    render(<LogViewer alias="app" wrap={false} searchMatchLines={[1, 3]} />);
+    render(
+      <LogViewer
+        alias="app"
+        wrap={false}
+        hasTimestampFormat={false}
+        searchMatchLines={[1, 3]}
+      />,
+    );
 
     const firstRow = screen.getByText("first line").closest("div");
     const secondRow = screen.getByText("second line").closest("div");
@@ -142,7 +221,8 @@ describe("LogViewer", () => {
     useLogStream.mockReturnValue(
       mockResult({
         totalLines: 1,
-        lines: new Map([[1, "first line"]]),
+        fileTotalLines: 1,
+        lines: lineContentMap([[1, content(1, "first line")]]),
       }),
     );
 
@@ -150,6 +230,7 @@ describe("LogViewer", () => {
       <LogViewer
         alias="app"
         wrap={false}
+        hasTimestampFormat={false}
         searchMatchLines={[1]}
         highlights={[{ line_index: 1, content: "first line", label: null, origin: "user" }]}
       />,
@@ -164,18 +245,24 @@ describe("LogViewer", () => {
     useLogStream.mockReturnValue(
       mockResult({
         totalLines: 5,
-        lines: new Map([
-          [1, "one"],
-          [2, "two"],
-          [3, "three"],
-          [4, "four"],
-          [5, "five"],
+        fileTotalLines: 5,
+        lines: lineContentMap([
+          [1, content(1, "one")],
+          [2, content(2, "two")],
+          [3, content(3, "three")],
+          [4, content(4, "four")],
+          [5, content(5, "five")],
         ]),
       }),
     );
 
     const { rerender } = render(
-      <LogViewer alias="app" wrap={false} scrollToLine={{ lineIndex: 3, nonce: 1 }} />,
+      <LogViewer
+        alias="app"
+        wrap={false}
+        hasTimestampFormat={false}
+        scrollToLine={{ lineIndex: 3, nonce: 1 }}
+      />,
     );
 
     expect(scrollToIndex).toHaveBeenCalledWith(2, { align: "center" });
@@ -183,7 +270,14 @@ describe("LogViewer", () => {
     scrollToIndex.mockClear();
 
     // Same lineIndex, new nonce: should scroll again.
-    rerender(<LogViewer alias="app" wrap={false} scrollToLine={{ lineIndex: 3, nonce: 2 }} />);
+    rerender(
+      <LogViewer
+        alias="app"
+        wrap={false}
+        hasTimestampFormat={false}
+        scrollToLine={{ lineIndex: 3, nonce: 2 }}
+      />,
+    );
 
     expect(scrollToIndex).toHaveBeenCalledWith(2, { align: "center" });
   });
@@ -192,11 +286,14 @@ describe("LogViewer", () => {
     useLogStream.mockReturnValue(
       mockResult({
         totalLines: 1,
-        lines: new Map([[1, "one"]]),
+        fileTotalLines: 1,
+        lines: lineContentMap([[1, content(1, "one")]]),
       }),
     );
 
-    render(<LogViewer alias="app" wrap={false} scrollToLine={null} />);
+    render(
+      <LogViewer alias="app" wrap={false} hasTimestampFormat={false} scrollToLine={null} />,
+    );
 
     expect(scrollToIndex).not.toHaveBeenCalled();
   });
@@ -205,15 +302,16 @@ describe("LogViewer", () => {
     useLogStream.mockReturnValue(
       mockResult({
         totalLines: 3,
-        lines: new Map([
-          [1, "first line"],
-          [2, "second line"],
-          [3, "third line"],
+        fileTotalLines: 3,
+        lines: lineContentMap([
+          [1, content(1, "first line")],
+          [2, content(2, "second line")],
+          [3, content(3, "third line")],
         ]),
       }),
     );
 
-    render(<LogViewer alias="app" wrap={false} />);
+    render(<LogViewer alias="app" wrap={false} hasTimestampFormat={false} />);
 
     await userEvent.click(screen.getByText("second line"));
 
@@ -232,10 +330,11 @@ describe("LogViewer", () => {
     useLogStream.mockReturnValue(
       mockResult({
         totalLines: 3,
-        lines: new Map([
-          [1, "first line"],
-          [2, "second line"],
-          [3, "third line"],
+        fileTotalLines: 3,
+        lines: lineContentMap([
+          [1, content(1, "first line")],
+          [2, content(2, "second line")],
+          [3, content(3, "third line")],
         ]),
       }),
     );
@@ -244,6 +343,7 @@ describe("LogViewer", () => {
       <LogViewer
         alias="app"
         wrap={false}
+        hasTimestampFormat={false}
         highlightedOnly={true}
         highlights={[
           { line_index: 1, content: "first line", label: null, origin: "user" },
@@ -260,5 +360,53 @@ describe("LogViewer", () => {
     expect(screen.getByText("third line").closest("div")).toHaveClass(
       "border-selected-line",
     );
+  });
+
+  it("narrowing the time range renders only in-range lines with their file lineIndex", () => {
+    // `view_filter` hides file line 1; view-row 1/2 map to file lines 2/3.
+    useLogStream.mockReturnValue(
+      mockResult({
+        totalLines: 2,
+        fileTotalLines: 3,
+        lines: lineContentMap([
+          [1, content(2, "second line")],
+          [2, content(3, "third line")],
+        ]),
+      }),
+    );
+
+    render(<LogViewer alias="app" wrap={false} hasTimestampFormat={true} />);
+
+    expect(screen.queryByText("first line")).not.toBeInTheDocument();
+    expect(screen.getByText("second line")).toBeInTheDocument();
+    expect(screen.getByText("third line")).toBeInTheDocument();
+
+    // The highlight toggle's aria-label is keyed by the file lineIndex
+    // (LineContent.line_index), not the view-row.
+    expect(
+      screen.getByText("second line").closest("div"),
+    ).toContainElement(screen.getByLabelText("Highlight line 2"));
+    expect(
+      screen.getByText("third line").closest("div"),
+    ).toContainElement(screen.getByLabelText("Highlight line 3"));
+  });
+
+  it("does not scroll for a selectedLine hidden by the active filter (no-op reverse lookup)", () => {
+    // file line 1 is hidden by the active filter: view-row 1 maps to file
+    // line 2, so a reverse lookup for selectedLine=1 finds nothing.
+    useLogStream.mockReturnValue(
+      mockResult({
+        totalLines: 1,
+        fileTotalLines: 3,
+        lines: lineContentMap([[1, content(2, "second line")]]),
+      }),
+    );
+    useLineSelectionStore.setState({
+      slices: { app: { selectedLine: 1, navNonce: 1 } },
+    });
+
+    render(<LogViewer alias="app" wrap={false} hasTimestampFormat={true} />);
+
+    expect(scrollToIndex).not.toHaveBeenCalled();
   });
 });

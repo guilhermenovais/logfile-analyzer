@@ -60,7 +60,7 @@ describe("Time range filter pipeline (US1)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Search" }));
 
     await waitFor(() => expect(searchCalls.length).toBeGreaterThan(0));
-    expect(searchCalls[0].timeFrom).toBe(new Date(2026, 5, 12, 10, 0).getTime());
-    expect(searchCalls[0].timeTo).toBe(new Date(2026, 5, 12, 10, 30).getTime());
+    expect(searchCalls[0].timeFrom).toBe(Date.UTC(2026, 5, 12, 10, 0));
+    expect(searchCalls[0].timeTo).toBe(Date.UTC(2026, 5, 12, 10, 30));
   });
 });

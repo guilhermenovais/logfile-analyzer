@@ -51,11 +51,8 @@ export function WorkspacePage() {
   );
   const panelOpen = searchSlice?.panelOpen ?? false;
 
-  const files = workspace?.files ?? [];
-  const hasTimestampFormat =
-    files.find((file) => file.alias === selectedAlias)?.has_timestamp_format ?? false;
-
   const { data: fileProperties } = useFileProperties(selectedAlias);
+  const hasTimestampFormat = fileProperties?.has_timestamp_format ?? false;
   const firstTimestamp = fileProperties?.first_timestamp ?? null;
   const lastTimestamp = fileProperties?.last_timestamp ?? null;
 
@@ -147,6 +144,7 @@ export function WorkspacePage() {
                   onToggleHighlight={handleToggleHighlight}
                   searchMatchLines={useSearchUiStore.searchMatchLines(selectedAlias)}
                   scrollToLine={useSearchUiStore.scrollToLine(selectedAlias)}
+                  hasTimestampFormat={hasTimestampFormat}
                 />
               </FeatureErrorBoundary>
             </div>

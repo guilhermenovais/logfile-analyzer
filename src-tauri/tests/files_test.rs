@@ -83,7 +83,11 @@ fn add_ready_file(state: &Arc<AppState>, alias: &str, contents: &[u8]) -> i64 {
             state: IndexState::Ready,
             timestamp_profile: None,
             line_timestamps: None,
+            effective_timestamps: None,
+            utc_offset_minutes: 0,
+            timestamp_detection_complete: false,
         }),
+        view_filter: RwLock::new(None),
     });
     state
         .files
@@ -116,13 +120,18 @@ fn add_ready_file_with_timestamps(state: &Arc<AppState>, alias: &str, contents: 
             state: IndexState::Ready,
             timestamp_profile: None,
             line_timestamps: None,
+            effective_timestamps: None,
+            utc_offset_minutes: 0,
+            timestamp_detection_complete: false,
         }),
+        view_filter: RwLock::new(None),
     });
     timestamp::detect_and_parse(&runtime.mmap, &runtime.index);
     {
         let db = state.db.lock().unwrap();
         log_file_entry::set_has_timestamp_format(&db, entry.id, true).unwrap();
     }
+    runtime.index.write().unwrap().timestamp_detection_complete = true;
     state
         .files
         .write()
@@ -202,6 +211,36 @@ fn file_properties_reports_first_and_last_timestamps() {
 }
 
 #[test]
+fn file_properties_reports_timestamp_offset_minutes_for_iso8601_with_explicit_offset() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+    add_ready_file_with_timestamps(
+        &state,
+        "app",
+        b"2026-06-12T10:00:00+02:00 connecting to db\n2026-06-12T10:01:00+02:00 an error talking to db\n2026-06-12T10:02:00+02:00 recovered\n",
+    );
+
+    let props = files::get_file_properties(state.clone(), "app".into()).unwrap();
+
+    assert_eq!(props.timestamp_offset_minutes, 120);
+}
+
+#[test]
+fn file_properties_timestamp_offset_minutes_is_zero_without_explicit_offset() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+    add_ready_file_with_timestamps(
+        &state,
+        "app",
+        b"1781258400 connecting to db\n1781258460 an error talking to db\n1781258520 recovered\n",
+    );
+
+    let props = files::get_file_properties(state.clone(), "app".into()).unwrap();
+
+    assert_eq!(props.timestamp_offset_minutes, 0);
+}
+
+#[test]
 fn file_properties_timestamps_null_without_detected_format() {
     let app = mock_app();
     let state = app.state::<Arc<AppState>>();
@@ -236,7 +275,11 @@ fn file_properties_timestamps_null_when_indexing_incomplete() {
             state: IndexState::Indexing,
             timestamp_profile: None,
             line_timestamps: Some(vec![timestamp::parse_iso8601("2026-06-12T10:00:00Z")]),
+            effective_timestamps: None,
+            utc_offset_minutes: 0,
+            timestamp_detection_complete: false,
         }),
+        view_filter: RwLock::new(None),
     });
     state
         .files
@@ -248,6 +291,70 @@ fn file_properties_timestamps_null_when_indexing_incomplete() {
 
     assert_eq!(props.first_timestamp, None);
     assert_eq!(props.last_timestamp, None);
+}
+
+#[test]
+fn file_properties_indexing_complete_waits_for_timestamp_detection() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+    let workspace_id = *state.active_workspace_id.lock().unwrap();
+    let contents = b"2026-06-12T10:00:00Z connecting to db\n2026-06-12T10:01:00Z an error talking to db\n2026-06-12T10:02:00Z recovered\n";
+    let path = write_temp_file("app", contents);
+    let entry = {
+        let db = state.db.lock().unwrap();
+        log_file_entry::insert(&db, workspace_id, &path.to_string_lossy(), "app").unwrap()
+    };
+
+    let mmap = open_mmap(&path);
+    let offsets = line_offsets(contents);
+    let total = offsets.len();
+    let runtime = Arc::new(FileRuntime {
+        file_id: entry.id,
+        mmap,
+        index: RwLock::new(FileIndex {
+            line_offsets: offsets,
+            total_lines: total,
+            state: IndexState::Ready,
+            timestamp_profile: None,
+            line_timestamps: None,
+            effective_timestamps: None,
+            utc_offset_minutes: 0,
+            timestamp_detection_complete: false,
+        }),
+        view_filter: RwLock::new(None),
+    });
+    timestamp::detect_and_parse(&runtime.mmap, &runtime.index);
+    {
+        let db = state.db.lock().unwrap();
+        log_file_entry::set_has_timestamp_format(&db, entry.id, true).unwrap();
+    }
+    state
+        .files
+        .write()
+        .unwrap()
+        .insert("app".to_string(), runtime.clone());
+
+    // Line-offset indexing and timestamp detection have both run, and
+    // `has_timestamp_format` is persisted — but `timestamp_detection_complete`
+    // hasn't been set yet (research.md §2.1's race window).
+    let props = files::get_file_properties(state.clone(), "app".into()).unwrap();
+    assert!(!props.indexing_complete);
+    assert_eq!(props.first_timestamp, None);
+    assert_eq!(props.last_timestamp, None);
+
+    runtime.index.write().unwrap().timestamp_detection_complete = true;
+
+    let props = files::get_file_properties(state.clone(), "app".into()).unwrap();
+    assert!(props.indexing_complete);
+    assert!(props.has_timestamp_format);
+    assert_eq!(
+        props.first_timestamp,
+        timestamp::parse_iso8601("2026-06-12T10:00:00Z").map(|ms| ms as f64),
+    );
+    assert_eq!(
+        props.last_timestamp,
+        timestamp::parse_iso8601("2026-06-12T10:02:00Z").map(|ms| ms as f64),
+    );
 }
 
 #[test]

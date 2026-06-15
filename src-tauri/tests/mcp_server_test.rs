@@ -77,7 +77,11 @@ fn add_ready_file(state: &Arc<AppState>, alias: &str, contents: &[u8]) {
             state: IndexState::Ready,
             timestamp_profile: None,
             line_timestamps: None,
+            effective_timestamps: None,
+            utc_offset_minutes: 0,
+            timestamp_detection_complete: true,
         }),
+        view_filter: RwLock::new(None),
     });
     state
         .files

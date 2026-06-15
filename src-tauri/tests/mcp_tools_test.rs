@@ -104,7 +104,11 @@ fn add_ready_file(state: &Arc<AppState>, alias: &str, contents: &[u8]) -> i64 {
             state: IndexState::Ready,
             timestamp_profile: None,
             line_timestamps: None,
+            effective_timestamps: None,
+            utc_offset_minutes: 0,
+            timestamp_detection_complete: true,
         }),
+        view_filter: RwLock::new(None),
     });
     state
         .files
@@ -138,7 +142,11 @@ fn add_ready_file_with_timestamps(state: &Arc<AppState>, alias: &str, contents: 
             state: IndexState::Ready,
             timestamp_profile: None,
             line_timestamps: None,
+            effective_timestamps: None,
+            utc_offset_minutes: 0,
+            timestamp_detection_complete: false,
         }),
+        view_filter: RwLock::new(None),
     });
     timestamp::detect_and_parse(&runtime.mmap, &runtime.index);
     state
@@ -368,6 +376,46 @@ fn search_with_context_time_range_filters_matches_by_timestamp() {
     let history = search_history::list_for_workspace(&db, workspace_id).unwrap();
     assert_eq!(history[0].time_from, Some(1_781_258_460_000));
     assert_eq!(history[0].time_to, None);
+}
+
+/// FR-004/FR-010: a line with no own timestamp inherits the nearest
+/// preceding line's timestamp via `effective_timestamps`, so MCP
+/// `search_with_context`'s `time_from`/`time_to` filtering now includes it
+/// where it was previously always excluded (its own `line_timestamps` entry
+/// is `None`).
+#[test]
+fn search_with_context_includes_continuation_line_via_effective_timestamp_inheritance() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+
+    // 4 of 5 lines carry a timestamp (ratio 0.8 >= DETECTION_THRESHOLD), so
+    // the format is still detected despite line 2 having none.
+    add_ready_file_with_timestamps(
+        &state,
+        "app",
+        b"2026-06-12T10:00:00Z connecting to db\n\
+continuation: db trace info\n\
+2026-06-12T10:01:00Z still going\n\
+2026-06-12T10:02:00Z almost done\n\
+2026-06-12T10:03:00Z recovered\n",
+    );
+
+    let server = LogAnalyzerMcpServer::new(state.inner().clone());
+    let output = expect_ok(
+        server.search_with_context(Parameters(SearchWithContextInput {
+            alias: "app".into(),
+            query: "\"db\"".into(),
+            search_type: SearchTypeArg::Logical,
+            surrounding_count: Some(0),
+            time_from: Some("2026-06-12T10:00:00Z".into()),
+            time_to: None,
+        })),
+    );
+
+    let matched_lines: Vec<usize> = output.matches.iter().map(|m| m.line_index).collect();
+    // Line 2 has no own timestamp but inherits line 1's 10:00:00Z, which
+    // satisfies `time_from = 10:00:00Z`.
+    assert_eq!(matched_lines, vec![1, 2]);
 }
 
 #[test]
