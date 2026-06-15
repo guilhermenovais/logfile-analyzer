@@ -108,7 +108,11 @@ fn add_ready_file(state: &Arc<AppState>, alias: &str, contents: &[u8]) -> i64 {
             state: IndexState::Ready,
             timestamp_profile: None,
             line_timestamps: None,
+            effective_timestamps: None,
+            utc_offset_minutes: 0,
+            timestamp_detection_complete: false,
         }),
+        view_filter: RwLock::new(None),
     });
     state
         .files
@@ -141,7 +145,11 @@ fn add_ready_file_with_timestamps(state: &Arc<AppState>, alias: &str, contents: 
             state: IndexState::Ready,
             timestamp_profile: None,
             line_timestamps: None,
+            effective_timestamps: None,
+            utc_offset_minutes: 0,
+            timestamp_detection_complete: false,
         }),
+        view_filter: RwLock::new(None),
     });
     timestamp::detect_and_parse(&runtime.mmap, &runtime.index);
     state
@@ -511,6 +519,45 @@ fn search_time_range_filters_through_real_indexing_pipeline() {
             "unexpected match past the midpoint: {m:?}"
         );
     }
+}
+
+/// FR-004/FR-010: a line with no own timestamp inherits the nearest
+/// preceding line's timestamp via `effective_timestamps`, so `search`'s
+/// `time_from`/`time_to` filtering now includes it where it was previously
+/// always excluded (its own `line_timestamps` entry is `None`).
+#[test]
+fn search_time_range_includes_continuation_line_via_effective_timestamp_inheritance() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+    // 4 of 5 lines carry a timestamp (ratio 0.8 >= DETECTION_THRESHOLD), so
+    // the format is still detected despite line 2 having none.
+    add_ready_file_with_timestamps(
+        &state,
+        "app",
+        b"2026-06-12T10:00:00Z connecting to db\n\
+continuation: db trace info\n\
+2026-06-12T10:01:00Z still going\n\
+2026-06-12T10:02:00Z almost done\n\
+2026-06-12T10:03:00Z recovered\n",
+    );
+
+    let (channel, rx) = collecting_channel::<SearchMatchBatch>();
+    search::search(
+        state.clone(),
+        "app".into(),
+        r#""db""#.into(),
+        SearchType::Logical,
+        Some(TS_10_00),
+        None,
+        channel,
+    )
+    .unwrap();
+
+    let batch = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let matched_lines: Vec<u32> = batch.matches.iter().map(|m| m.line_index).collect();
+    // Line 2 has no own timestamp but inherits line 1's 10:00:00Z, which
+    // satisfies `time_from = 10:00:00Z`.
+    assert_eq!(matched_lines, vec![1, 2]);
 }
 
 #[test]

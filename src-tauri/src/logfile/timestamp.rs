@@ -7,6 +7,8 @@ use chrono::{DateTime, NaiveDateTime};
 use memmap2::Mmap;
 
 use crate::logfile::mmap_index::line_bytes;
+use crate::logfile::offset;
+use crate::logfile::view_filter;
 use crate::state::{FileIndex, TimestampFormat, TimestampFormatProfile};
 
 /// Number of lines sampled to detect a file's timestamp format (FR-011).
@@ -160,10 +162,18 @@ pub fn detect_and_parse(mmap: &Mmap, index: &RwLock<FileIndex>) {
     };
 
     let line_timestamps = parse_line_timestamps(mmap, &line_offsets, profile.format);
+    let effective_timestamps = view_filter::effective_timestamps(&line_timestamps);
+    let utc_offset_minutes = if profile.format == TimestampFormat::Iso8601 {
+        offset::detect_utc_offset_minutes(&sample)
+    } else {
+        0
+    };
 
     let mut guard = index.write().unwrap();
     guard.timestamp_profile = Some(profile);
     guard.line_timestamps = Some(line_timestamps);
+    guard.effective_timestamps = Some(effective_timestamps);
+    guard.utc_offset_minutes = utc_offset_minutes;
 }
 
 #[cfg(test)]

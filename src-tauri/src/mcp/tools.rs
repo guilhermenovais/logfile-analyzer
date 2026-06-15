@@ -325,7 +325,7 @@ fn run_search_with_context(
 
     let time_filter = has_time_range.then(|| {
         (
-            index.line_timestamps.as_deref().unwrap_or(&[]),
+            index.effective_timestamps.as_deref().unwrap_or(&[]),
             time_from,
             time_to,
         )

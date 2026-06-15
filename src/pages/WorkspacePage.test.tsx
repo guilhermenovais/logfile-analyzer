@@ -209,6 +209,43 @@ describe("WorkspacePage - Search results panel", () => {
     expect(useSearchUiStore.getState().slices["app"]?.timeRangeInitialized).toBeFalsy();
   });
 
+  it("shows TimeRangeFields once has_timestamp_format transitions to true without remounting (US2 Acceptance Scenario 1)", async () => {
+    useFileProperties.mockReturnValue({
+      data: {
+        total_lines: 3,
+        has_timestamp_format: false,
+        available: true,
+        indexing_complete: false,
+        first_timestamp: null,
+        last_timestamp: null,
+      },
+    });
+
+    const { rerender } = render(<WorkspacePage />);
+
+    await userEvent.click(screen.getByRole("button", { name: "app" }));
+
+    expect(screen.queryByLabelText("Time range from")).not.toBeInTheDocument();
+    let calls = LogViewer.mock.calls;
+    expect(calls[calls.length - 1]?.[0]?.hasTimestampFormat).toBe(false);
+
+    useFileProperties.mockReturnValue({
+      data: {
+        total_lines: 3,
+        has_timestamp_format: true,
+        available: true,
+        indexing_complete: true,
+        first_timestamp: 1000,
+        last_timestamp: 2000,
+      },
+    });
+    rerender(<WorkspacePage />);
+
+    expect(screen.getByLabelText("Time range from")).toBeInTheDocument();
+    calls = LogViewer.mock.calls;
+    expect(calls[calls.length - 1]?.[0]?.hasTimestampFormat).toBe(true);
+  });
+
   it("hides the highlighted-lines list by default and shows it via the toolbar's show/hide button (US2)", async () => {
     render(<WorkspacePage />);
 

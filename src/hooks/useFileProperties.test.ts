@@ -21,6 +21,7 @@ const properties: FileProperties = {
   indexing_complete: true,
   first_timestamp: 1000,
   last_timestamp: 2000,
+  timestamp_offset_minutes: 0,
 };
 
 function wrapper({ children }: { children: ReactNode }) {

@@ -105,7 +105,11 @@ fn stream_lines_returns_available_lines_while_indexing_incomplete() {
             state: IndexState::Indexing,
             timestamp_profile: None,
             line_timestamps: None,
+            effective_timestamps: None,
+            utc_offset_minutes: 0,
+            timestamp_detection_complete: false,
         }),
+        view_filter: RwLock::new(None),
     });
     state
         .files
@@ -120,7 +124,11 @@ fn stream_lines_returns_available_lines_while_indexing_incomplete() {
     assert_eq!(batch.start_index, 1);
     // Only 2 of the 3 published offsets are returned: the 3rd line's end
     // offset isn't known yet while indexing is incomplete.
-    assert_eq!(batch.lines, vec!["one", "two"]);
+    let contents: Vec<&str> = batch.lines.iter().map(|l| l.content.as_str()).collect();
+    assert_eq!(contents, vec!["one", "two"]);
+    // Unfiltered (`view_filter == None`): `line_index == view_row`.
+    assert_eq!(batch.lines[0].line_index, 1);
+    assert_eq!(batch.lines[1].line_index, 2);
     assert!(rx.recv_timeout(Duration::from_millis(50)).is_err());
 }
 
@@ -151,7 +159,11 @@ fn stream_lines_paginates_large_ranges_into_multiple_batches() {
             state: IndexState::Ready,
             timestamp_profile: None,
             line_timestamps: None,
+            effective_timestamps: None,
+            utc_offset_minutes: 0,
+            timestamp_detection_complete: false,
         }),
+        view_filter: RwLock::new(None),
     });
     state.files.write().unwrap().insert("large".into(), runtime);
 
@@ -161,7 +173,7 @@ fn stream_lines_paginates_large_ranges_into_multiple_batches() {
     let mut batches = Vec::new();
     while let Ok(batch) = rx.recv_timeout(Duration::from_millis(50)) {
         // Each batch must stay comfortably under the 100KB streaming bound.
-        let batch_bytes: usize = batch.lines.iter().map(|l| l.len()).sum();
+        let batch_bytes: usize = batch.lines.iter().map(|l| l.content.len()).sum();
         assert!(batch_bytes < 100 * 1024);
         batches.push(batch);
     }
@@ -173,6 +185,138 @@ fn stream_lines_paginates_large_ranges_into_multiple_batches() {
     );
     let total_lines: usize = batches.iter().map(|b| b.lines.len()).sum();
     assert_eq!(total_lines, 2000);
+}
+
+/// Inserts a 5-line file (`"one"`..`"five"`) under `alias` with one
+/// timestamp per line (1000ms, 2000ms, ..., 5000ms — already in
+/// `effective_timestamps` form, no carry-forward needed), returning
+/// `total_lines`.
+fn insert_timed_runtime(state: &Arc<AppState>, alias: &str) -> usize {
+    let content = b"one\ntwo\nthree\nfour\nfive\n".to_vec();
+    let path = write_temp_file(&format!("{alias}.log"), &content);
+    let mmap = open_mmap(&path);
+    let offsets = line_offsets(&content);
+    let total = offsets.len();
+    let timestamps: Vec<Option<i64>> = (1..=total as i64).map(|n| Some(n * 1000)).collect();
+
+    let runtime = Arc::new(FileRuntime {
+        file_id: 1,
+        mmap,
+        index: RwLock::new(FileIndex {
+            line_offsets: offsets,
+            total_lines: total,
+            state: IndexState::Ready,
+            timestamp_profile: None,
+            line_timestamps: Some(timestamps.clone()),
+            effective_timestamps: Some(timestamps),
+            utc_offset_minutes: 0,
+            timestamp_detection_complete: true,
+        }),
+        view_filter: RwLock::new(None),
+    });
+    state.files.write().unwrap().insert(alias.into(), runtime);
+    total
+}
+
+#[test]
+fn set_view_time_range_filters_stream_lines_to_in_range_indices() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+    insert_timed_runtime(&state, "narrowed");
+
+    // Narrow the visible range to lines 2-4 (timestamps 2000..=4000ms).
+    let count = tauri::async_runtime::block_on(viewing::set_view_time_range(
+        state.clone(),
+        "narrowed".into(),
+        Some(2000.0),
+        Some(4000.0),
+    ))
+    .unwrap();
+    assert_eq!(count, 3);
+
+    let (channel, rx) = collecting_channel::<LineBatch>();
+    viewing::stream_lines(state.clone(), "narrowed".into(), 1, 10, channel).unwrap();
+
+    let batch = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    // The view-row start_index addresses the filtered range, not file lines.
+    assert_eq!(batch.start_index, 1);
+    let contents: Vec<&str> = batch.lines.iter().map(|l| l.content.as_str()).collect();
+    assert_eq!(contents, vec!["two", "three", "four"]);
+    // Each LineContent.line_index is the underlying file line index.
+    let indices: Vec<u32> = batch.lines.iter().map(|l| l.line_index).collect();
+    assert_eq!(indices, vec![2, 3, 4]);
+    assert!(rx.recv_timeout(Duration::from_millis(50)).is_err());
+}
+
+#[test]
+fn set_view_time_range_covering_full_span_restores_identity() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+    let total = insert_timed_runtime(&state, "full_span");
+
+    // (first_timestamp, last_timestamp) = (1000, 5000): FR-005 "default span
+    // MUST NOT exclude any line", so the filter is cleared (identity).
+    let count = tauri::async_runtime::block_on(viewing::set_view_time_range(
+        state.clone(),
+        "full_span".into(),
+        Some(1000.0),
+        Some(5000.0),
+    ))
+    .unwrap();
+    assert_eq!(count, total as u32);
+
+    let (channel, rx) = collecting_channel::<LineBatch>();
+    viewing::stream_lines(state.clone(), "full_span".into(), 1, total as u32, channel).unwrap();
+
+    let batch = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(batch.start_index, 1);
+    let indices: Vec<u32> = batch.lines.iter().map(|l| l.line_index).collect();
+    assert_eq!(indices, vec![1, 2, 3, 4, 5]);
+}
+
+#[test]
+fn set_view_time_range_with_no_bounds_restores_identity() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+    let total = insert_timed_runtime(&state, "no_bounds");
+
+    let count = tauri::async_runtime::block_on(viewing::set_view_time_range(
+        state.clone(),
+        "no_bounds".into(),
+        None,
+        None,
+    ))
+    .unwrap();
+    assert_eq!(count, total as u32);
+
+    let (channel, rx) = collecting_channel::<LineBatch>();
+    viewing::stream_lines(state.clone(), "no_bounds".into(), 1, total as u32, channel).unwrap();
+
+    let batch = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(batch.start_index, 1);
+    let indices: Vec<u32> = batch.lines.iter().map(|l| l.line_index).collect();
+    assert_eq!(indices, vec![1, 2, 3, 4, 5]);
+}
+
+#[test]
+fn set_view_time_range_excluding_every_line_yields_empty_view() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+    insert_timed_runtime(&state, "excluded");
+
+    let count = tauri::async_runtime::block_on(viewing::set_view_time_range(
+        state.clone(),
+        "excluded".into(),
+        Some(10_000.0),
+        Some(20_000.0),
+    ))
+    .unwrap();
+    assert_eq!(count, 0);
+
+    let (channel, rx) = collecting_channel::<LineBatch>();
+    viewing::stream_lines(state.clone(), "excluded".into(), 1, 10, channel).unwrap();
+
+    assert!(rx.recv_timeout(Duration::from_millis(50)).is_err());
 }
 
 #[test]
@@ -194,7 +338,11 @@ fn subscribe_index_progress_reports_completion() {
             state: IndexState::Ready,
             timestamp_profile: None,
             line_timestamps: None,
+            effective_timestamps: None,
+            utc_offset_minutes: 0,
+            timestamp_detection_complete: false,
         }),
+        view_filter: RwLock::new(None),
     });
     state.files.write().unwrap().insert("ready".into(), runtime);
 

@@ -3,8 +3,22 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { LogLine } from "@/components/LogLine";
 import { useLineSelectionKeyboard } from "@/hooks/useLineSelectionKeyboard";
 import { useLineSelectionStore } from "@/hooks/useLineSelectionStore";
-import { useLogStream } from "@/hooks/useLogStream";
+import { useLogStream, type UseLogStreamResult } from "@/hooks/useLogStream";
+import { DEFAULT_SEARCH_UI_STATE, useSearchUiStore } from "@/hooks/useSearchUiStore";
 import type { HighlightEntry } from "@/ipc/highlights";
+
+/** Reverse lookup: the view-row whose `LineContent.line_index === lineIndex`, if loaded. */
+function findViewRow(
+  lines: UseLogStreamResult["lines"],
+  lineIndex: number,
+): number | undefined {
+  for (const [viewRow, entry] of lines) {
+    if (entry.line_index === lineIndex) {
+      return viewRow;
+    }
+  }
+  return undefined;
+}
 
 const LINE_HEIGHT_PX = 20;
 /** Extra rows fetched/rendered beyond the visible viewport. */
@@ -31,6 +45,11 @@ export interface LogViewerProps {
    * `nonce` lets the parent re-request a scroll to the same line (research.md §6).
    */
   scrollToLine?: { lineIndex: number; nonce: number } | null;
+  /**
+   * Whether `alias` has a detected timestamp format, gating the
+   * `timeFrom`/`timeTo` view filter (FR-001-FR-005).
+   */
+  hasTimestampFormat: boolean;
 }
 
 /**
@@ -48,8 +67,20 @@ export function LogViewer({
   onToggleHighlight,
   searchMatchLines,
   scrollToLine,
+  hasTimestampFormat,
 }: LogViewerProps) {
-  const { lines, totalLines, loadRange } = useLogStream(alias);
+  const timeFrom = useSearchUiStore(
+    (state) => state.slices[alias]?.timeFrom ?? DEFAULT_SEARCH_UI_STATE.timeFrom,
+  );
+  const timeTo = useSearchUiStore(
+    (state) => state.slices[alias]?.timeTo ?? DEFAULT_SEARCH_UI_STATE.timeTo,
+  );
+  const { lines, totalLines, fileTotalLines, loadRange, viewVersion } = useLogStream(
+    alias,
+    timeFrom,
+    timeTo,
+    hasTimestampFormat,
+  );
   const parentRef = useRef<HTMLDivElement>(null);
 
   const selectedLine = useLineSelectionStore(
@@ -65,10 +96,13 @@ export function LogViewer({
 
   useLineSelectionKeyboard({
     alias,
-    totalLines,
+    totalLines: fileTotalLines,
     selectedLine,
     firstVisibleLineRef,
-    getLineContent: (lineIndex) => lines.get(lineIndex),
+    getLineContent: (lineIndex) => {
+      const viewRow = findViewRow(lines, lineIndex);
+      return viewRow === undefined ? undefined : lines.get(viewRow)?.content;
+    },
   });
 
   const highlightMap = useMemo(() => {
@@ -112,16 +146,28 @@ export function LogViewer({
     loadRange(startIndex, endIndex - startIndex + 1);
     // `rangeKey` mirrors the first/last visible indices; `virtualItems` is a
     // fresh array every render so isn't a stable dependency itself.
+    // `viewVersion` re-triggers this when a time-range change clears `lines`
+    // without changing `rangeKey` (e.g. already scrolled to the top).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rangeKey, loadRange]);
+  }, [rangeKey, loadRange, viewVersion]);
+
+  // A time-range change can shrink `totalLines` below the current scroll
+  // offset, leaving the virtualizer reporting no visible items (blank pane)
+  // until the user scrolls. Reset to the top whenever the view resets.
+  useEffect(() => {
+    virtualizer.scrollToOffset(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewVersion]);
 
   useEffect(() => {
     if (!scrollToLine) {
       return;
     }
-    virtualizer.scrollToIndex(scrollToLine.lineIndex - 1, {
-      align: "center",
-    });
+    const viewRow = findViewRow(lines, scrollToLine.lineIndex);
+    if (viewRow === undefined) {
+      return;
+    }
+    virtualizer.scrollToIndex(viewRow - 1, { align: "center" });
     // Only `nonce` should (re-)trigger the scroll (research.md §6).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollToLine?.nonce]);
@@ -130,7 +176,11 @@ export function LogViewer({
     if (selectedLine === null) {
       return;
     }
-    virtualizer.scrollToIndex(selectedLine - 1, { align: "auto" });
+    const viewRow = findViewRow(lines, selectedLine);
+    if (viewRow === undefined) {
+      return;
+    }
+    virtualizer.scrollToIndex(viewRow - 1, { align: "auto" });
     // Only `navNonce` (arrow-key navigation, FR-011/FR-012) should
     // (re-)trigger this scroll — click-based selection doesn't bump it
     // because the clicked row is already visible (research.md §6).
@@ -176,13 +226,15 @@ export function LogViewer({
             }}
           >
             {virtualItems.map((item) => {
-              const lineIndex = item.index + 1;
+              const viewRow = item.index + 1;
+              const entry = lines.get(viewRow);
+              const lineIndex = entry?.line_index ?? viewRow;
               const highlight = highlightMap.get(lineIndex);
               return (
                 <LogLine
                   key={item.key}
                   lineIndex={lineIndex}
-                  content={lines.get(lineIndex) ?? ""}
+                  content={entry?.content ?? ""}
                   wrap={wrap}
                   highlight={highlight}
                   isSearchMatch={searchMatchSet.has(lineIndex)}

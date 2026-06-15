@@ -50,6 +50,7 @@ pub fn load_workspace_files(
                     file_id: entry.id,
                     mmap,
                     index: RwLock::new(FileIndex::default()),
+                    view_filter: RwLock::new(None),
                 });
                 files.insert(entry.alias.clone(), runtime.clone());
                 let app_state = state.clone();

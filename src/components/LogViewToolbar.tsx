@@ -29,6 +29,7 @@ export function LogViewToolbar({ alias, hasTimestampFormat }: LogViewToolbarProp
   const { data: fileProperties } = useFileProperties(alias);
   const firstTimestamp = fileProperties?.first_timestamp ?? null;
   const lastTimestamp = fileProperties?.last_timestamp ?? null;
+  const offsetMinutes = fileProperties?.timestamp_offset_minutes ?? 0;
 
   return (
     <div className="flex flex-wrap items-center gap-2 border-b p-2 text-sm">
@@ -40,6 +41,7 @@ export function LogViewToolbar({ alias, hasTimestampFormat }: LogViewToolbarProp
             onChange={(value) =>
               useSearchUiStore.getState().setTimeRange(alias, value, timeTo)
             }
+            offsetMinutes={offsetMinutes}
           />
           <TimeRangeField
             label="To"
@@ -47,6 +49,7 @@ export function LogViewToolbar({ alias, hasTimestampFormat }: LogViewToolbarProp
             onChange={(value) =>
               useSearchUiStore.getState().setTimeRange(alias, timeFrom, value)
             }
+            offsetMinutes={offsetMinutes}
           />
           {(timeFrom !== null || timeTo !== null) && (
             <button

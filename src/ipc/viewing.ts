@@ -1,7 +1,7 @@
-import { commands, type IndexProgress, type LineBatch } from "@/bindings";
+import { commands, type IndexProgress, type LineBatch, type LineContent } from "@/bindings";
 import { Channel, unwrapResult } from "./client";
 
-export type { IndexProgress, LineBatch };
+export type { IndexProgress, LineBatch, LineContent };
 
 /**
  * Streams `count` lines starting at the 1-based `startIndex`, invoking
@@ -30,4 +30,16 @@ export async function subscribeIndexProgress(
   const channel = new Channel<IndexProgress>();
   channel.onmessage = onProgress;
   unwrapResult(await commands.subscribeIndexProgress(alias, channel));
+}
+
+/**
+ * Recomputes the main view's time-range filter for `alias` and returns the
+ * new visible line count (FR-001–FR-005, contracts/main-view-time-filter.md §1).
+ */
+export async function setViewTimeRange(
+  alias: string,
+  timeFrom: number | null,
+  timeTo: number | null,
+): Promise<number> {
+  return unwrapResult(await commands.setViewTimeRange(alias, timeFrom, timeTo));
 }

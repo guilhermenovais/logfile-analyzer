@@ -45,6 +45,8 @@ pub struct FileProperties {
     pub first_timestamp: Option<f64>,
     /// Epoch-ms timestamp of the last line, once detected and indexed (FR-011–FR-013).
     pub last_timestamp: Option<f64>,
+    /// The detected timestamp format's UTC offset, in minutes (FR-008/FR-009).
+    pub timestamp_offset_minutes: i32,
 }
 
 /// `{ line_index, content }` result of `get_line` (contracts/ipc-commands.md, FR-028).
@@ -58,10 +60,14 @@ pub struct LineContent {
 }
 
 /// `LineBatch` streamed by `stream_lines` (contracts/ipc-commands.md, FR-014/FR-032).
+///
+/// `start_index` is a 1-based **view-row** index; each entry's `LineContent.
+/// line_index` is the underlying **file** line index, used for
+/// highlight/selection/search-match lookups (data-model.md §7).
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct LineBatch {
     pub start_index: u32,
-    pub lines: Vec<String>,
+    pub lines: Vec<LineContent>,
 }
 
 /// `IndexProgress` streamed by `subscribe_index_progress` (contracts/ipc-commands.md, SC-001).
