@@ -67,7 +67,7 @@ describe("TimeRangeField", () => {
     expect(screen.getByLabelText("From minute")).toHaveValue(0);
   });
 
-  it("selecting a day in the calendar calls onChange with the combined date+existing-time value and closes the popover (FR-009)", async () => {
+  it("selecting a day in the calendar keeps the popover open, updates the selected day, and does not call onChange (FR-004)", async () => {
     const onChange = vi.fn();
     render(<TimeRangeField label="From" value={JUNE_12_1800} onChange={onChange} />);
 
@@ -80,11 +80,15 @@ describe("TimeRangeField", () => {
       screen.getByRole("button", { name: "Monday, June 15th, 2026" }),
     );
 
-    expect(onChange).toHaveBeenCalledWith(new Date(2026, 5, 15, 18, 0).getTime());
-    expect(screen.queryByRole("grid")).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("grid")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Monday, June 15th, 2026, selected" })
+        .parentElement,
+    ).toHaveAttribute("aria-selected", "true");
   });
 
-  it("changing the hour stepper calls onChange with the combined value and closes the popover (FR-008/FR-009)", async () => {
+  it("changing the hour then the minute input keeps the popover open, updates the displayed values, and does not call onChange (FR-005)", async () => {
     const onChange = vi.fn();
     render(<TimeRangeField label="From" value={JUNE_12_1800} onChange={onChange} />);
 
@@ -92,10 +96,72 @@ describe("TimeRangeField", () => {
       screen.getByRole("button", { name: "Open From date picker" }),
     );
 
-    const hourInput = screen.getByLabelText("From hour");
-    fireEvent.change(hourInput, { target: { value: "9" } });
+    fireEvent.change(screen.getByLabelText("From hour"), { target: { value: "9" } });
+    fireEvent.change(screen.getByLabelText("From minute"), { target: { value: "30" } });
 
-    expect(onChange).toHaveBeenCalledWith(new Date(2026, 5, 12, 9, 0).getTime());
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("grid")).toBeInTheDocument();
+    expect(screen.getByLabelText("From hour")).toHaveValue(9);
+    expect(screen.getByLabelText("From minute")).toHaveValue(30);
+  });
+
+  it("activating the confirm button commits the in-progress selection and closes the popover (FR-006)", async () => {
+    const onChange = vi.fn();
+    render(<TimeRangeField label="From" value={JUNE_12_1800} onChange={onChange} />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open From date picker" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Monday, June 15th, 2026" }),
+    );
+    fireEvent.change(screen.getByLabelText("From hour"), { target: { value: "9" } });
+    fireEvent.change(screen.getByLabelText("From minute"), { target: { value: "30" } });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Confirm From selection" }),
+    );
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith(new Date(2026, 5, 15, 9, 30).getTime());
+    expect(screen.queryByRole("grid")).not.toBeInTheDocument();
+  });
+
+  it("interacting outside the popover commits the in-progress selection, same as the confirm button (FR-007)", async () => {
+    const onChange = vi.fn();
+    render(<TimeRangeField label="From" value={JUNE_12_1800} onChange={onChange} />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open From date picker" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Monday, June 15th, 2026" }),
+    );
+    fireEvent.change(screen.getByLabelText("From hour"), { target: { value: "9" } });
+    fireEvent.change(screen.getByLabelText("From minute"), { target: { value: "30" } });
+
+    fireEvent.pointerDown(document.body);
+    fireEvent.pointerUp(document.body);
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith(new Date(2026, 5, 15, 9, 30).getTime());
+    expect(screen.queryByRole("grid")).not.toBeInTheDocument();
+  });
+
+  it("opening and closing the popover with no changes calls onChange with the unchanged value (Scenario 5)", async () => {
+    const onChange = vi.fn();
+    render(<TimeRangeField label="From" value={JUNE_12_1800} onChange={onChange} />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open From date picker" }),
+    );
+    expect(screen.getByRole("grid")).toBeInTheDocument();
+
+    fireEvent.pointerDown(document.body);
+    fireEvent.pointerUp(document.body);
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith(JUNE_12_1800);
     expect(screen.queryByRole("grid")).not.toBeInTheDocument();
   });
 

@@ -1,8 +1,9 @@
 import { useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { Calendar } from "lucide-react";
+import { Calendar, Check } from "lucide-react";
 import { DayPicker } from "react-day-picker";
 import "react-day-picker/style.css";
+import { combine, formatLocal, parseLocal } from "@/lib/timeRange";
 
 export interface TimeRangeFieldProps {
   /** "From" or "To" — used for the visible label and aria-label. */
@@ -12,54 +13,6 @@ export interface TimeRangeFieldProps {
   /** Called with the new committed value (epoch-ms), or `null` to clear. */
   onChange: (value: number | null) => void;
   disabled?: boolean;
-}
-
-function pad(value: number): string {
-  return value.toString().padStart(2, "0");
-}
-
-/** Formats epoch-ms as `YYYY-MM-DD HH:mm` in local time (research.md §4). */
-export function formatLocal(epochMs: number): string {
-  const date = new Date(epochMs);
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-const LOCAL_FORMAT = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/;
-
-/** Parses a `YYYY-MM-DD HH:mm` string to epoch-ms, or `null` if invalid (research.md §4). */
-export function parseLocal(text: string): number | null {
-  const match = LOCAL_FORMAT.exec(text.trim());
-  if (!match) {
-    return null;
-  }
-  const [, year, month, day, hour, minute] = match.map(Number) as unknown as [
-    string,
-    number,
-    number,
-    number,
-    number,
-    number,
-  ];
-  const date = new Date(year, month - 1, day, hour, minute);
-  if (
-    date.getFullYear() !== year ||
-    date.getMonth() !== month - 1 ||
-    date.getDate() !== day ||
-    date.getHours() !== hour ||
-    date.getMinutes() !== minute
-  ) {
-    return null;
-  }
-  return date.getTime();
-}
-
-/**
- * Combines `date`'s year/month/day with `hour`/`minute`, returning epoch-ms.
- */
-function combine(date: Date, hour: number, minute: number): number {
-  const combined = new Date(date);
-  combined.setHours(hour, minute, 0, 0);
-  return combined.getTime();
 }
 
 /**
@@ -79,6 +32,9 @@ export function TimeRangeField({
   const [open, setOpen] = useState(false);
 
   const seed = value !== null ? new Date(value) : new Date();
+  const [pickerDate, setPickerDate] = useState<Date | undefined>(
+    value !== null ? seed : undefined,
+  );
   const [pickerHour, setPickerHour] = useState(seed.getHours());
   const [pickerMinute, setPickerMinute] = useState(seed.getMinutes());
 
@@ -91,6 +47,7 @@ export function TimeRangeField({
     setText(value !== null ? formatLocal(value) : "");
     setInvalid(false);
     const next = value !== null ? new Date(value) : new Date();
+    setPickerDate(value !== null ? next : undefined);
     setPickerHour(next.getHours());
     setPickerMinute(next.getMinutes());
   }
@@ -106,24 +63,34 @@ export function TimeRangeField({
     onChange(parsed);
   }
 
+  /** Commits the in-progress picker selection and closes the popover (FR-006/FR-007). */
+  function closeAndCommit() {
+    const seedDate = value !== null ? new Date(value) : new Date();
+    onChange(combine(pickerDate ?? seedDate, pickerHour, pickerMinute));
+    setOpen(false);
+  }
+
+  function handlePopoverOpenChange(next: boolean) {
+    if (!next) {
+      if (open) {
+        closeAndCommit();
+      }
+      return;
+    }
+    // Reseed the in-progress selection from the committed `value` so a
+    // reopened picker starts fresh, not from a stale in-progress edit.
+    const seedDate = value !== null ? new Date(value) : new Date();
+    setPickerDate(value !== null ? seedDate : undefined);
+    setPickerHour(seedDate.getHours());
+    setPickerMinute(seedDate.getMinutes());
+    setOpen(true);
+  }
+
   function handleDaySelect(day: Date | undefined) {
     if (!day) {
       return;
     }
-    onChange(combine(day, pickerHour, pickerMinute));
-    setOpen(false);
-  }
-
-  function handleHourChange(hour: number) {
-    setPickerHour(hour);
-    onChange(combine(value !== null ? new Date(value) : new Date(), hour, pickerMinute));
-    setOpen(false);
-  }
-
-  function handleMinuteChange(minute: number) {
-    setPickerMinute(minute);
-    onChange(combine(value !== null ? new Date(value) : new Date(), pickerHour, minute));
-    setOpen(false);
+    setPickerDate(day);
   }
 
   const selectedDate = value !== null ? new Date(value) : undefined;
@@ -147,7 +114,7 @@ export function TimeRangeField({
         }}
         disabled={disabled}
       />
-      <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Root open={open} onOpenChange={handlePopoverOpenChange}>
         <Popover.Trigger asChild>
           <button
             type="button"
@@ -162,8 +129,8 @@ export function TimeRangeField({
           <Popover.Content className="z-50 rounded border bg-background p-2 shadow-lg">
             <DayPicker
               mode="single"
-              selected={selectedDate}
-              defaultMonth={selectedDate}
+              selected={pickerDate ?? selectedDate}
+              defaultMonth={pickerDate ?? selectedDate}
               onSelect={handleDaySelect}
             />
             <div className="flex items-center justify-center gap-2 px-2 pb-1 text-xs">
@@ -175,7 +142,7 @@ export function TimeRangeField({
                   min={0}
                   max={23}
                   value={pickerHour}
-                  onChange={(event) => handleHourChange(Number(event.target.value))}
+                  onChange={(event) => setPickerHour(Number(event.target.value))}
                   className="w-14 rounded border px-1 py-0.5"
                 />
               </label>
@@ -187,10 +154,18 @@ export function TimeRangeField({
                   min={0}
                   max={59}
                   value={pickerMinute}
-                  onChange={(event) => handleMinuteChange(Number(event.target.value))}
+                  onChange={(event) => setPickerMinute(Number(event.target.value))}
                   className="w-14 rounded border px-1 py-0.5"
                 />
               </label>
+              <button
+                type="button"
+                aria-label={`Confirm ${label} selection`}
+                className="rounded p-1 hover:bg-accent"
+                onClick={closeAndCommit}
+              >
+                <Check size={14} />
+              </button>
             </div>
           </Popover.Content>
         </Popover.Portal>

@@ -10,6 +10,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
+use logfile_analyzer_lib::commands::files;
 use logfile_analyzer_lib::commands::search;
 use logfile_analyzer_lib::commands::types::{SearchMatchBatch, SearchWithContextBatch};
 use logfile_analyzer_lib::error::AppError;
@@ -407,6 +408,109 @@ fn search_with_context_time_range_filters_matches_by_timestamp() {
         batch.matches[0].matched.content,
         "2026-06-12T10:00:00Z connecting to db"
     );
+}
+
+/// FR-001-FR-003: a time range set on the desktop toolbar must narrow
+/// `search`'s results through the *real* `add_file` -> background-detection
+/// -> `search` pipeline, not just against a hand-built `FileIndex`
+/// (research.md §1).
+#[test]
+fn search_time_range_filters_through_real_indexing_pipeline() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+
+    let path = write_temp_file(
+        "pipeline",
+        b"2026-06-12T10:00:00Z connecting to db\n\
+2026-06-12T10:01:00Z an error talking to db\n\
+2026-06-12T10:02:00Z recovered\n\
+2026-06-12T10:03:00Z connecting to db again\n\
+2026-06-12T10:04:00Z db closed\n",
+    );
+
+    files::add_file(
+        state.clone(),
+        path.to_string_lossy().into_owned(),
+        Some("pipeline".into()),
+    )
+    .unwrap();
+
+    let mut properties = None;
+    for _ in 0..200 {
+        let props = files::get_file_properties(state.clone(), "pipeline".into()).unwrap();
+        if props.indexing_complete && props.has_timestamp_format {
+            properties = Some(props);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let properties = properties.expect("indexing did not complete in time");
+
+    let first_timestamp = properties
+        .first_timestamp
+        .expect("first_timestamp should be populated once indexing completes");
+    let last_timestamp = properties
+        .last_timestamp
+        .expect("last_timestamp should be populated once indexing completes");
+
+    // No time filter: every "db" line matches.
+    let (channel, rx) = collecting_channel::<SearchMatchBatch>();
+    search::search(
+        state.clone(),
+        "pipeline".into(),
+        r#""db""#.into(),
+        SearchType::Logical,
+        None,
+        None,
+        channel,
+    )
+    .unwrap();
+    let unfiltered = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    // The file's own first/last timestamps as bounds: identical results (FR-003).
+    let (channel, rx) = collecting_channel::<SearchMatchBatch>();
+    search::search(
+        state.clone(),
+        "pipeline".into(),
+        r#""db""#.into(),
+        SearchType::Logical,
+        Some(first_timestamp),
+        Some(last_timestamp),
+        channel,
+    )
+    .unwrap();
+    let full_span = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let as_pairs = |matches: &[logfile_analyzer_lib::commands::types::SearchMatchEntry]| {
+        matches
+            .iter()
+            .map(|m| (m.line_index, m.content.clone()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(as_pairs(&full_span.matches), as_pairs(&unfiltered.matches));
+
+    // Narrowing `time_to` to the midpoint excludes the later "db" matches
+    // (FR-001/FR-002).
+    let midpoint = (first_timestamp + last_timestamp) / 2.0;
+    let (channel, rx) = collecting_channel::<SearchMatchBatch>();
+    search::search(
+        state.clone(),
+        "pipeline".into(),
+        r#""db""#.into(),
+        SearchType::Logical,
+        None,
+        Some(midpoint),
+        channel,
+    )
+    .unwrap();
+    let narrowed = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    assert!(narrowed.matches.len() < unfiltered.matches.len());
+    for m in &narrowed.matches {
+        assert!(
+            m.line_index <= 3,
+            "unexpected match past the midpoint: {m:?}"
+        );
+    }
 }
 
 #[test]
