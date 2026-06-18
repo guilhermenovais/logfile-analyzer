@@ -54,6 +54,15 @@ pub fn start(state: Arc<AppState>, port: u16) -> std::io::Result<McpServerHandle
     let listener = tauri::async_runtime::block_on(TcpListener::bind(("127.0.0.1", port)))?;
     let port = listener.local_addr()?.port();
 
+    let router = router.route(
+        "/.well-known/oauth-protected-resource",
+        axum::routing::get(move || async move {
+            axum::Json(serde_json::json!({
+                "resource": format!("http://127.0.0.1:{port}/mcp")
+            }))
+        }),
+    );
+
     let shutdown_token = cancellation_token.clone();
     tauri::async_runtime::spawn(async move {
         let _ = axum::serve(listener, router)
