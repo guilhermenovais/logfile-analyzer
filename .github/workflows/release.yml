@@ -59,6 +59,9 @@ jobs:
 
       - run: pnpm install
 
+      - name: Generate TypeScript bindings
+        run: cargo test --test export_bindings --manifest-path src-tauri/Cargo.toml
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
