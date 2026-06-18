@@ -33,6 +33,13 @@ const { getVersion } = vi.hoisted(() => ({
 }));
 vi.mock("@tauri-apps/api/app", () => ({ getVersion }));
 
+vi.mock("@tauri-apps/plugin-updater", () => ({
+  check: vi.fn().mockResolvedValue(null),
+}));
+vi.mock("@tauri-apps/plugin-process", () => ({
+  relaunch: vi.fn(),
+}));
+
 describe("App", () => {
   beforeEach(() => {
     getVersion.mockResolvedValue("0.1.0");
