@@ -191,3 +191,107 @@ fn mcp_server_serves_registered_tools_over_http() {
 
     handle.shutdown();
 }
+
+fn start_mcp_server() -> mcp::server::McpServerHandle {
+    let conn = Connection::open_in_memory().unwrap();
+    schema::migrate(&conn).unwrap();
+    let ws = workspace::get_or_create_draft(&conn).unwrap();
+    let state = Arc::new(AppState::new(conn, ws.id));
+
+    let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let probe_port = probe.local_addr().unwrap().port();
+    drop(probe);
+
+    mcp::server::start(state, probe_port).expect("failed to start MCP server")
+}
+
+#[test]
+fn well_known_oauth_protected_resource_returns_metadata() {
+    let handle = start_mcp_server();
+    let port = handle.port;
+
+    tauri::async_runtime::block_on(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let resp = reqwest::get(format!(
+            "http://127.0.0.1:{port}/.well-known/oauth-protected-resource"
+        ))
+        .await
+        .expect("request failed");
+
+        assert_eq!(resp.status(), 200);
+        let content_type = resp
+            .headers()
+            .get("content-type")
+            .expect("missing content-type")
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            content_type.contains("application/json"),
+            "expected application/json, got {content_type}"
+        );
+
+        let body: serde_json::Value = resp.json().await.expect("invalid JSON");
+        assert_eq!(
+            body["resource"],
+            format!("http://127.0.0.1:{port}/mcp")
+        );
+    });
+
+    handle.shutdown();
+}
+
+#[test]
+fn well_known_oauth_protected_resource_omits_authorization_servers() {
+    let handle = start_mcp_server();
+    let port = handle.port;
+
+    tauri::async_runtime::block_on(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let resp = reqwest::get(format!(
+            "http://127.0.0.1:{port}/.well-known/oauth-protected-resource"
+        ))
+        .await
+        .expect("request failed");
+
+        let body: serde_json::Value = resp.json().await.expect("invalid JSON");
+        assert!(
+            body.get("authorization_servers").is_none(),
+            "authorization_servers must not be present"
+        );
+        assert!(
+            body.get("scopes_supported").is_none(),
+            "scopes_supported must not be present"
+        );
+    });
+
+    handle.shutdown();
+}
+
+#[test]
+fn well_known_endpoint_is_spec_compliant_for_any_client() {
+    let handle = start_mcp_server();
+    let port = handle.port;
+
+    tauri::async_runtime::block_on(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let resp = reqwest::get(format!(
+            "http://127.0.0.1:{port}/.well-known/oauth-protected-resource"
+        ))
+        .await
+        .expect("request failed");
+
+        let body: serde_json::Value = resp.json().await.expect("invalid JSON");
+        assert_eq!(
+            body["resource"],
+            format!("http://127.0.0.1:{port}/mcp"),
+            "resource field must point to the MCP endpoint"
+        );
+        assert!(body.is_object(), "response must be a valid JSON object");
+    });
+
+    handle.shutdown();
+}
