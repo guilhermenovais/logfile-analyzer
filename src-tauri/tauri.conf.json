@@ -38,7 +38,7 @@
       "endpoints": [
         "https://github.com/guilhermenovais/logfile-analyzer/releases/latest/download/latest.json"
       ],
-      "pubkey": "REPLACE_WITH_PUBLIC_KEY"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk2QTI0Q0Q4N0M1MzQyREIKUldUYlFsTjgyRXlpbHZXeGpWbEY5c0dnR3d6QjI3V3RiUW5nUFhSQXluT2hkYXVXcmtLUktzSWcK"
     }
   }
 }
