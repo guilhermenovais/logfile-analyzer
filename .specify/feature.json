@@ -1,1 +1,3 @@
-{"feature_directory": "specs/011-github-actions-release"}
+{
+  "feature_directory": "specs/012-tauri-auto-updater"
+}

@@ -41,3 +41,7 @@ tauri-plugin-dialog = "2"
 [dev-dependencies]
 tauri = { version = "2", features = ["specta", "test"] }
 rmcp = { version = "1.7.0", features = ["client", "transport-streamable-http-client-reqwest"] }
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-process = "2.3.1"
+tauri-plugin-updater = "2.10.1"
