@@ -169,10 +169,11 @@ export function LogViewer({
       return;
     }
     const viewRow = findViewRow(lines, scrollToLine.lineIndex);
-    if (viewRow === undefined) {
-      return;
+    const scrollIndex =
+      viewRow !== undefined ? viewRow - 1 : scrollToLine.lineIndex - 1;
+    if (scrollIndex >= 0 && scrollIndex < totalLines) {
+      virtualizer.scrollToIndex(scrollIndex, { align: "center" });
     }
-    virtualizer.scrollToIndex(viewRow - 1, { align: "center" });
     // Only `nonce` should (re-)trigger the scroll (research.md §6).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollToLine?.nonce]);

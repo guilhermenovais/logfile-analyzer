@@ -206,6 +206,22 @@ describe("SearchBar", () => {
     });
   });
 
+  describe("layout classes (US1)", () => {
+    it("has shrink-0 on the outer wrapper and min-w-0 on the input wrapper", () => {
+      useSearch.mockReturnValue(mockResult());
+
+      const { container } = render(
+        <SearchBar alias="app" hasTimestampFormat={false} />,
+      );
+
+      const outerDiv = container.firstElementChild as HTMLElement;
+      expect(outerDiv).toHaveClass("shrink-0");
+
+      const inputWrapper = container.querySelector(".relative.flex-1") as HTMLElement;
+      expect(inputWrapper).toHaveClass("min-w-0");
+    });
+  });
+
   describe("control heights (US3/FR-017)", () => {
     it("gives the search type select, query input, and search button a shared height and text size", () => {
       useSearch.mockReturnValue(mockResult());

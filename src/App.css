@@ -86,3 +86,15 @@
     font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
   }
 }
+
+.scrollbar-visible::-webkit-scrollbar {
+  width: 8px;
+}
+.scrollbar-visible::-webkit-scrollbar-track {
+  background: var(--muted);
+  border-radius: 4px;
+}
+.scrollbar-visible::-webkit-scrollbar-thumb {
+  background: var(--muted-foreground);
+  border-radius: 4px;
+}

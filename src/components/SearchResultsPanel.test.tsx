@@ -129,6 +129,43 @@ describe("SearchResultsPanel", () => {
     }
   });
 
+  describe("layout classes (US1/US3)", () => {
+    it("has shrink-0 on the outer wrapper", () => {
+      useSearchUiStore.getState().setResults("app", matches, false);
+
+      const { container } = render(<SearchResultsPanel alias="app" />);
+
+      const outerDiv = container.firstElementChild as HTMLElement;
+      expect(outerDiv).toHaveClass("shrink-0");
+    });
+
+    it("has scrollbar-visible on the results list when results are present", () => {
+      useSearchUiStore.getState().setResults("app", matches, false);
+
+      render(<SearchResultsPanel alias="app" />);
+
+      const list = screen.getByRole("list");
+      expect(list).toHaveClass("scrollbar-visible");
+    });
+  });
+
+  describe("consistent border margins (US4)", () => {
+    it("always applies border-2 to result buttons and toggles between border-transparent and border-selected-line", () => {
+      useSearchUiStore.getState().setResults("app", matches, false);
+      useLineSelectionStore.getState().selectLine("app", matches[1].line_index);
+
+      render(<SearchResultsPanel alias="app" />);
+
+      const selectedRow = screen.getByText(matches[1].content).closest("button");
+      expect(selectedRow).toHaveClass("border-2", "border-selected-line");
+      expect(selectedRow).not.toHaveClass("border-transparent");
+
+      const unselectedRow = screen.getByText(matches[0].content).closest("button");
+      expect(unselectedRow).toHaveClass("border-2", "border-transparent");
+      expect(unselectedRow).not.toHaveClass("border-selected-line");
+    });
+  });
+
   describe("scroll-follow on navNonce changes (US4, FR-013)", () => {
     beforeEach(() => {
       Element.prototype.scrollIntoView = vi.fn();

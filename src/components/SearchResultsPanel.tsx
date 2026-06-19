@@ -41,7 +41,7 @@ export function SearchResultsPanel({ alias }: SearchResultsPanelProps) {
   }, [navNonce]);
 
   return (
-    <div className="flex flex-col gap-2 border-b p-2">
+    <div className="flex shrink-0 flex-col gap-2 border-b p-2">
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs text-muted-foreground">
           {results.length === 0
@@ -87,7 +87,7 @@ export function SearchResultsPanel({ alias }: SearchResultsPanelProps) {
       {results.length === 0 ? (
         <p className="text-xs text-muted-foreground">No matches found.</p>
       ) : (
-        <ul className="flex max-h-48 flex-col gap-1 overflow-auto text-xs">
+        <ul className="scrollbar-visible flex max-h-48 flex-col gap-1 overflow-auto text-xs">
           {results.map((match, index) => (
             <li key={match.line_index}>
               <button
@@ -100,9 +100,10 @@ export function SearchResultsPanel({ alias }: SearchResultsPanelProps) {
                 }}
                 type="button"
                 className={cn(
-                  "flex w-full items-start gap-2 text-left hover:bg-accent",
-                  match.line_index === selectedLine &&
-                    "border-2 border-selected-line",
+                  "flex w-full items-start gap-2 border-2 text-left hover:bg-accent",
+                  match.line_index === selectedLine
+                    ? "border-selected-line"
+                    : "border-transparent",
                 )}
                 onClick={() =>
                   useSearchUiStore.getState().selectMatch(alias, index)

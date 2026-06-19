@@ -92,7 +92,7 @@ export function WorkspacePage() {
         onRemoveFile={handleRemoveFile}
       />
 
-      <main className="flex flex-1 flex-col">
+      <main className="flex min-w-0 flex-1 flex-col">
         {isLoading && (
           <p className="p-4 text-sm text-muted-foreground">
             Loading workspace…
