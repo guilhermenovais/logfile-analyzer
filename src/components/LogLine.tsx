@@ -37,13 +37,13 @@ export function LogLine({
   return (
     <div
       className={cn(
-        "flex items-start gap-2",
+        "flex items-start gap-2 border-2",
         highlight && "bg-accent",
         isSearchMatch &&
           (highlight
             ? "ring-2 ring-inset ring-search-match"
             : "bg-search-match"),
-        isSelected && "border-2 border-selected-line",
+        isSelected ? "border-selected-line" : "border-transparent",
         className,
       )}
       style={style}
