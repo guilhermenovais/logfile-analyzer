@@ -74,6 +74,39 @@ describe("LogLine", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it("renders with border-2 border-transparent when unselected (T009)", () => {
+    render(
+      <LogLine
+        lineIndex={1}
+        content="hello world"
+        wrap={false}
+        isSelected={false}
+        onSelect={() => {}}
+      />,
+    );
+
+    const row = screen.getByText("hello world").closest("div");
+    expect(row).toHaveClass("border-2");
+    expect(row).toHaveClass("border-transparent");
+  });
+
+  it("renders with border-2 border-selected-line and no border-transparent when selected (T010)", () => {
+    render(
+      <LogLine
+        lineIndex={1}
+        content="hello world"
+        wrap={false}
+        isSelected={true}
+        onSelect={() => {}}
+      />,
+    );
+
+    const row = screen.getByText("hello world").closest("div");
+    expect(row).toHaveClass("border-2");
+    expect(row).toHaveClass("border-selected-line");
+    expect(row).not.toHaveClass("border-transparent");
+  });
+
   it("adds border-2 border-selected-line when isSelected", () => {
     render(
       <LogLine

@@ -160,6 +160,11 @@ export function LogViewer({
   }, [viewVersion]);
 
   useEffect(() => {
+    virtualizer.measure();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wrap]);
+
+  useEffect(() => {
     if (!scrollToLine) {
       return;
     }
@@ -231,25 +236,29 @@ export function LogViewer({
               const lineIndex = entry?.line_index ?? viewRow;
               const highlight = highlightMap.get(lineIndex);
               return (
-                <LogLine
+                <div
                   key={item.key}
-                  lineIndex={lineIndex}
-                  content={entry?.content ?? ""}
-                  wrap={wrap}
-                  highlight={highlight}
-                  isSearchMatch={searchMatchSet.has(lineIndex)}
-                  isSelected={selectedLine === lineIndex}
-                  onToggleHighlight={onToggleHighlight}
-                  onSelect={selectLine}
+                  data-index={item.index}
+                  ref={virtualizer.measureElement}
                   style={{
                     position: "absolute",
                     top: 0,
                     left: 0,
                     width: "100%",
-                    height: `${item.size}px`,
                     transform: `translateY(${item.start}px)`,
                   }}
-                />
+                >
+                  <LogLine
+                    lineIndex={lineIndex}
+                    content={entry?.content ?? ""}
+                    wrap={wrap}
+                    highlight={highlight}
+                    isSearchMatch={searchMatchSet.has(lineIndex)}
+                    isSelected={selectedLine === lineIndex}
+                    onToggleHighlight={onToggleHighlight}
+                    onSelect={selectLine}
+                  />
+                </div>
               );
             })}
           </div>

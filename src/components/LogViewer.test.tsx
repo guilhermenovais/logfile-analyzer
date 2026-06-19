@@ -10,10 +10,12 @@ import {
 import type { UseLogStreamResult } from "@/hooks/useLogStream";
 import type { LineContent } from "@/bindings";
 
-const { useLogStream, scrollToIndex, scrollToOffset } = vi.hoisted(() => ({
+const { useLogStream, scrollToIndex, scrollToOffset, measureElement, measure } = vi.hoisted(() => ({
   useLogStream: vi.fn(),
   scrollToIndex: vi.fn(),
   scrollToOffset: vi.fn(),
+  measureElement: vi.fn(),
+  measure: vi.fn(),
 }));
 
 vi.mock("@/hooks/useLogStream", () => ({ useLogStream }));
@@ -41,6 +43,8 @@ vi.mock("@tanstack/react-virtual", () => ({
       getTotalSize: () => count * size,
       scrollToIndex,
       scrollToOffset,
+      measureElement,
+      measure,
     };
   },
 }));
@@ -70,6 +74,8 @@ describe("LogViewer", () => {
     useLogStream.mockReset();
     scrollToIndex.mockReset();
     scrollToOffset.mockReset();
+    measureElement.mockReset();
+    measure.mockReset();
     useLineSelectionStore.setState({ slices: {} });
     useSearchUiStore.setState({ slices: {} });
     vi.spyOn(window, "getSelection").mockReturnValue({
@@ -389,6 +395,78 @@ describe("LogViewer", () => {
     expect(
       screen.getByText("third line").closest("div"),
     ).toContainElement(screen.getByLabelText("Highlight line 3"));
+  });
+
+  it("attaches virtualizer.measureElement as ref to virtual item wrappers when wrap is enabled (T001)", () => {
+    useLogStream.mockReturnValue(
+      mockResult({
+        totalLines: 2,
+        fileTotalLines: 2,
+        lines: lineContentMap([
+          [1, content(1, "first line")],
+          [2, content(2, "second line")],
+        ]),
+      }),
+    );
+
+    render(<LogViewer alias="app" wrap={true} hasTimestampFormat={false} />);
+
+    expect(measureElement).toHaveBeenCalled();
+  });
+
+  it("adds data-index attribute matching item.index to virtual item wrappers (T002)", () => {
+    useLogStream.mockReturnValue(
+      mockResult({
+        totalLines: 2,
+        fileTotalLines: 2,
+        lines: lineContentMap([
+          [1, content(1, "first line")],
+          [2, content(2, "second line")],
+        ]),
+      }),
+    );
+
+    render(<LogViewer alias="app" wrap={true} hasTimestampFormat={false} />);
+
+    const first = screen.getByText("first line").closest("[data-index]");
+    expect(first).toHaveAttribute("data-index", "0");
+    const second = screen.getByText("second line").closest("[data-index]");
+    expect(second).toHaveAttribute("data-index", "1");
+  });
+
+  it("does not apply fixed height style to virtual items when wrap is enabled (T003)", () => {
+    useLogStream.mockReturnValue(
+      mockResult({
+        totalLines: 1,
+        fileTotalLines: 1,
+        lines: lineContentMap([[1, content(1, "some line")]]),
+      }),
+    );
+
+    render(<LogViewer alias="app" wrap={true} hasTimestampFormat={false} />);
+
+    const wrapper = screen.getByText("some line").closest("[data-index]");
+    expect(wrapper).not.toHaveStyle({ height: "20px" });
+  });
+
+  it("calls virtualizer.measure() when wrap prop changes (T004)", () => {
+    useLogStream.mockReturnValue(
+      mockResult({
+        totalLines: 1,
+        fileTotalLines: 1,
+        lines: lineContentMap([[1, content(1, "some line")]]),
+      }),
+    );
+
+    const { rerender } = render(
+      <LogViewer alias="app" wrap={false} hasTimestampFormat={false} />,
+    );
+
+    measure.mockClear();
+
+    rerender(<LogViewer alias="app" wrap={true} hasTimestampFormat={false} />);
+
+    expect(measure).toHaveBeenCalled();
   });
 
   it("does not scroll for a selectedLine hidden by the active filter (no-op reverse lookup)", () => {
