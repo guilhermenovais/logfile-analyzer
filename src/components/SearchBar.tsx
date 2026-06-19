@@ -54,9 +54,9 @@ export function SearchBar({ alias, hasTimestampFormat }: SearchBarProps) {
   }
 
   return (
-    <div className="flex flex-col gap-2 border-b p-2">
+    <div className="flex shrink-0 flex-col gap-2 border-b p-2">
       <form onSubmit={handleSubmit} className="flex items-center gap-2">
-        <div className="relative flex-1">
+        <div className="relative min-w-0 flex-1">
           <input
             className="h-9 w-full rounded border px-2 text-sm"
             placeholder={
