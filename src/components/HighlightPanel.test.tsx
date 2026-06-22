@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useLineSelectionStore } from "@/hooks/useLineSelectionStore";
 import type { HighlightEntry } from "@/ipc/highlights";
 import { HighlightPanel } from "./HighlightPanel";
 
@@ -23,6 +24,10 @@ function noop() {
 }
 
 describe("HighlightPanel", () => {
+  beforeEach(() => {
+    useLineSelectionStore.setState({ slices: {} });
+  });
+
   it("shows a message when there are no highlights", () => {
     render(
       <HighlightPanel
@@ -31,6 +36,8 @@ describe("HighlightPanel", () => {
         error={null}
         onUpdateLabel={noop}
         onRemove={noop}
+        alias="app"
+        onSelect={noop}
       />,
     );
 
@@ -45,6 +52,8 @@ describe("HighlightPanel", () => {
         error={null}
         onUpdateLabel={noop}
         onRemove={noop}
+        alias="app"
+        onSelect={noop}
       />,
     );
 
@@ -68,6 +77,8 @@ describe("HighlightPanel", () => {
         error={null}
         onUpdateLabel={onUpdateLabel}
         onRemove={noop}
+        alias="app"
+        onSelect={noop}
       />,
     );
 
@@ -87,6 +98,8 @@ describe("HighlightPanel", () => {
         error={null}
         onUpdateLabel={onUpdateLabel}
         onRemove={noop}
+        alias="app"
+        onSelect={noop}
       />,
     );
 
@@ -106,6 +119,8 @@ describe("HighlightPanel", () => {
         error={null}
         onUpdateLabel={noop}
         onRemove={onRemove}
+        alias="app"
+        onSelect={noop}
       />,
     );
 
@@ -124,9 +139,92 @@ describe("HighlightPanel", () => {
         error="LineOutOfRange"
         onUpdateLabel={noop}
         onRemove={noop}
+        alias="app"
+        onSelect={noop}
       />,
     );
 
     expect(screen.getByText("LineOutOfRange")).toBeInTheDocument();
+  });
+
+  it("calls onSelect with the correct lineIndex when a highlight entry is clicked (T001/FR-001)", async () => {
+    const onSelect = vi.fn();
+    render(
+      <HighlightPanel
+        highlights={[highlightA, highlightB]}
+        isLoading={false}
+        error={null}
+        onUpdateLabel={noop}
+        onRemove={noop}
+        alias="app"
+        onSelect={onSelect}
+      />,
+    );
+
+    const entryButtons = screen.getAllByRole("button", { name: /navigate to line/i });
+    await userEvent.click(entryButtons[1]);
+
+    expect(onSelect).toHaveBeenCalledWith(highlightA.line_index);
+  });
+
+  it("shows border-selected-line on the entry matching selectedLine (T002/FR-007)", () => {
+    useLineSelectionStore.getState().selectLine("app", highlightA.line_index);
+
+    render(
+      <HighlightPanel
+        highlights={[highlightA, highlightB]}
+        isLoading={false}
+        error={null}
+        onUpdateLabel={noop}
+        onRemove={noop}
+        alias="app"
+        onSelect={noop}
+      />,
+    );
+
+    const selectedEntry = screen.getByRole("button", {
+      name: `Navigate to line ${highlightA.line_index}`,
+    });
+    expect(selectedEntry).toHaveClass("border-selected-line");
+
+    const otherEntry = screen.getByRole("button", {
+      name: `Navigate to line ${highlightB.line_index}`,
+    });
+    expect(otherEntry).not.toHaveClass("border-selected-line");
+    expect(otherEntry).toHaveClass("border-transparent");
+  });
+
+  it("scroll-follows navNonce changes for selected entry (FR-007)", () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    useLineSelectionStore.getState().selectLine("app", 2);
+
+    const { rerender } = render(
+      <HighlightPanel
+        highlights={[highlightA, highlightB]}
+        isLoading={false}
+        error={null}
+        onUpdateLabel={noop}
+        onRemove={noop}
+        alias="app"
+        onSelect={noop}
+      />,
+    );
+
+    useLineSelectionStore.getState().moveSelection("app", 1, 100, 2);
+    rerender(
+      <HighlightPanel
+        highlights={[highlightA, highlightB]}
+        isLoading={false}
+        error={null}
+        onUpdateLabel={noop}
+        onRemove={noop}
+        alias="app"
+        onSelect={noop}
+      />,
+    );
+
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({
+      block: "nearest",
+    });
   });
 });

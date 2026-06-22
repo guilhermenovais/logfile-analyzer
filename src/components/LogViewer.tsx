@@ -47,6 +47,11 @@ export interface LogViewerProps {
    */
   scrollToLine?: { lineIndex: number; nonce: number } | null;
   /**
+   * When set, scrolls to `lineIndex` from a highlight panel click.
+   * Independent of `scrollToLine` — each feeds its own `useScrollToLine` call.
+   */
+  highlightScrollToLine?: { lineIndex: number; nonce: number } | null;
+  /**
    * Whether `alias` has a detected timestamp format, gating the
    * `timeFrom`/`timeTo` view filter (FR-001-FR-005).
    */
@@ -68,6 +73,7 @@ export function LogViewer({
   onToggleHighlight,
   searchMatchLines,
   scrollToLine,
+  highlightScrollToLine,
   hasTimestampFormat,
 }: LogViewerProps) {
   const timeFrom = useSearchUiStore(
@@ -169,6 +175,13 @@ export function LogViewer({
     alias,
     virtualizer,
     scrollTarget: scrollToLine ?? null,
+    totalLines,
+  });
+
+  useScrollToLine({
+    alias,
+    virtualizer,
+    scrollTarget: highlightScrollToLine ?? null,
     totalLines,
   });
 
