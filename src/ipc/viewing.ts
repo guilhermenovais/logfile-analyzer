@@ -33,6 +33,17 @@ export async function subscribeIndexProgress(
 }
 
 /**
+ * Maps a 1-based file line index to its 1-based view-row under the current
+ * view filter for `alias` (contracts/resolve-view-row.md).
+ */
+export async function resolveViewRow(
+  alias: string,
+  lineIndex: number,
+): Promise<number> {
+  return unwrapResult(await commands.resolveViewRow(alias, lineIndex));
+}
+
+/**
  * Recomputes the main view's time-range filter for `alias` and returns the
  * new visible line count (FR-001–FR-005, contracts/main-view-time-filter.md §1).
  */

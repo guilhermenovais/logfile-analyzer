@@ -4,6 +4,7 @@ import { LogLine } from "@/components/LogLine";
 import { useLineSelectionKeyboard } from "@/hooks/useLineSelectionKeyboard";
 import { useLineSelectionStore } from "@/hooks/useLineSelectionStore";
 import { useLogStream, type UseLogStreamResult } from "@/hooks/useLogStream";
+import { useScrollToLine } from "@/hooks/useScrollToLine";
 import { DEFAULT_SEARCH_UI_STATE, useSearchUiStore } from "@/hooks/useSearchUiStore";
 import type { HighlightEntry } from "@/ipc/highlights";
 
@@ -164,19 +165,12 @@ export function LogViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wrap]);
 
-  useEffect(() => {
-    if (!scrollToLine) {
-      return;
-    }
-    const viewRow = findViewRow(lines, scrollToLine.lineIndex);
-    const scrollIndex =
-      viewRow !== undefined ? viewRow - 1 : scrollToLine.lineIndex - 1;
-    if (scrollIndex >= 0 && scrollIndex < totalLines) {
-      virtualizer.scrollToIndex(scrollIndex, { align: "center" });
-    }
-    // Only `nonce` should (re-)trigger the scroll (research.md §6).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scrollToLine?.nonce]);
+  useScrollToLine({
+    alias,
+    virtualizer,
+    scrollTarget: scrollToLine ?? null,
+    totalLines,
+  });
 
   useEffect(() => {
     if (selectedLine === null) {

@@ -17,6 +17,27 @@ use crate::state::{AppState, IndexState};
 /// streamed payloads must stay under ~100KB).
 const MAX_BATCH_BYTES: usize = 64 * 1024;
 
+/// Maps a 1-based file line index to its 1-based view-row under the current
+/// view filter for `alias`. Used by the frontend scroll mechanism to compute
+/// the correct virtualizer index before calling `scrollToIndex`.
+#[tauri::command]
+#[specta::specta]
+pub fn resolve_view_row(
+    state: State<'_, Arc<AppState>>,
+    alias: String,
+    line_index: u32,
+) -> Result<u32> {
+    let runtime = resolve_runtime(&state, &alias)?;
+    let view_filter = runtime.view_filter.read().unwrap();
+    match &*view_filter {
+        None => Ok(line_index),
+        Some(indices) => indices
+            .binary_search(&line_index)
+            .map(|pos| pos as u32 + 1)
+            .map_err(|_| AppError::LineOutOfRange),
+    }
+}
+
 /// Recomputes and caches `runtime.view_filter` for `alias` under
 /// `[time_from, time_to]` (epoch-ms, inclusive bounds), and returns the new
 /// visible line count — the value `LogViewer`'s virtualizer should use as
@@ -165,4 +186,43 @@ pub fn subscribe_index_progress(
     });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::RwLock;
+
+    use crate::error::AppError;
+
+    fn resolve(view_filter: &RwLock<Option<Vec<u32>>>, line_index: u32) -> Result<u32, AppError> {
+        let guard = view_filter.read().unwrap();
+        match &*guard {
+            None => Ok(line_index),
+            Some(indices) => indices
+                .binary_search(&line_index)
+                .map(|pos| pos as u32 + 1)
+                .map_err(|_| AppError::LineOutOfRange),
+        }
+    }
+
+    #[test]
+    fn identity_mapping_no_filter() {
+        let vf = RwLock::new(None);
+        assert_eq!(resolve(&vf, 42).unwrap(), 42);
+    }
+
+    #[test]
+    fn correct_view_row_with_filter() {
+        let vf = RwLock::new(Some(vec![2, 5, 10, 15]));
+        assert_eq!(resolve(&vf, 2).unwrap(), 1);
+        assert_eq!(resolve(&vf, 5).unwrap(), 2);
+        assert_eq!(resolve(&vf, 10).unwrap(), 3);
+        assert_eq!(resolve(&vf, 15).unwrap(), 4);
+    }
+
+    #[test]
+    fn line_out_of_range_when_not_in_filter() {
+        let vf = RwLock::new(Some(vec![2, 5, 10]));
+        assert!(resolve(&vf, 7).is_err());
+    }
 }

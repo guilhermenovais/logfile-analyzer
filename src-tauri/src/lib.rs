@@ -40,6 +40,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         files::get_file_properties,
         files::get_line,
         files::remove_file,
+        viewing::resolve_view_row,
         viewing::stream_lines,
         viewing::subscribe_index_progress,
         viewing::set_view_time_range,
