@@ -233,10 +233,7 @@ fn well_known_oauth_protected_resource_returns_metadata() {
         );
 
         let body: serde_json::Value = resp.json().await.expect("invalid JSON");
-        assert_eq!(
-            body["resource"],
-            format!("http://127.0.0.1:{port}/mcp")
-        );
+        assert_eq!(body["resource"], format!("http://127.0.0.1:{port}/mcp"));
     });
 
     handle.shutdown();

@@ -19,6 +19,14 @@ pub enum AppError {
     InvalidPort,
     PortUnavailable(String),
     Io(String),
+    DownloadFailed(String),
+    SignatureInvalid(String),
+    PkexecNotFound,
+    UserCancelled,
+    InstallFailed(String),
+    Timeout,
+    TempDirFailed,
+    InvalidPackageFormat,
 }
 
 pub type Result<T> = std::result::Result<T, AppError>;
@@ -40,6 +48,14 @@ impl std::fmt::Display for AppError {
             AppError::InvalidPort => write!(f, "invalid port"),
             AppError::PortUnavailable(reason) => write!(f, "port unavailable: {reason}"),
             AppError::Io(msg) => write!(f, "io error: {msg}"),
+            AppError::DownloadFailed(msg) => write!(f, "download failed: {msg}"),
+            AppError::SignatureInvalid(msg) => write!(f, "signature invalid: {msg}"),
+            AppError::PkexecNotFound => write!(f, "pkexec not found"),
+            AppError::UserCancelled => write!(f, "user cancelled"),
+            AppError::InstallFailed(msg) => write!(f, "install failed: {msg}"),
+            AppError::Timeout => write!(f, "operation timed out"),
+            AppError::TempDirFailed => write!(f, "failed to create temp directory"),
+            AppError::InvalidPackageFormat => write!(f, "invalid package format"),
         }
     }
 }

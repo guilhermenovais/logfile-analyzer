@@ -37,6 +37,14 @@ fn map_error(err: AppError) -> Json<McpToolError> {
         AppError::InvalidPort => "invalid_port",
         AppError::PortUnavailable(_) => "port_unavailable",
         AppError::Io(_) => "io_error",
+        AppError::DownloadFailed(_) => "download_failed",
+        AppError::SignatureInvalid(_) => "signature_invalid",
+        AppError::PkexecNotFound => "pkexec_not_found",
+        AppError::UserCancelled => "user_cancelled",
+        AppError::InstallFailed(_) => "install_failed",
+        AppError::Timeout => "timeout",
+        AppError::TempDirFailed => "temp_dir_failed",
+        AppError::InvalidPackageFormat => "invalid_package_format",
     };
     Json(McpToolError {
         kind,
