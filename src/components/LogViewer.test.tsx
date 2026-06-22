@@ -10,15 +10,17 @@ import {
 import type { UseLogStreamResult } from "@/hooks/useLogStream";
 import type { LineContent } from "@/bindings";
 
-const { useLogStream, scrollToIndex, scrollToOffset, measureElement, measure } = vi.hoisted(() => ({
+const { useLogStream, scrollToIndex, scrollToOffset, measureElement, measure, resolveViewRow } = vi.hoisted(() => ({
   useLogStream: vi.fn(),
   scrollToIndex: vi.fn(),
   scrollToOffset: vi.fn(),
   measureElement: vi.fn(),
   measure: vi.fn(),
+  resolveViewRow: vi.fn(),
 }));
 
 vi.mock("@/hooks/useLogStream", () => ({ useLogStream }));
+vi.mock("@/ipc/viewing", () => ({ resolveViewRow }));
 
 // jsdom has no layout engine, so `@tanstack/react-virtual` would see a 0px
 // viewport and render nothing. Stand in with a virtualizer that renders every
@@ -76,6 +78,10 @@ describe("LogViewer", () => {
     scrollToOffset.mockReset();
     measureElement.mockReset();
     measure.mockReset();
+    resolveViewRow.mockReset();
+    resolveViewRow.mockImplementation((_alias: string, lineIndex: number) =>
+      Promise.resolve(lineIndex),
+    );
     useLineSelectionStore.setState({ slices: {} });
     useSearchUiStore.setState({ slices: {} });
     vi.spyOn(window, "getSelection").mockReturnValue({
@@ -247,7 +253,12 @@ describe("LogViewer", () => {
     expect(row).toHaveClass("ring-search-match");
   });
 
-  it("scrolls to scrollToLine.lineIndex when its nonce changes", () => {
+  it("scrolls to scrollToLine.lineIndex via resolveViewRow IPC when nonce changes", async () => {
+    resolveViewRow.mockResolvedValue(3);
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      cb(0);
+      return 0;
+    });
     useLogStream.mockReturnValue(
       mockResult({
         totalLines: 5,
@@ -271,11 +282,15 @@ describe("LogViewer", () => {
       />,
     );
 
-    expect(scrollToIndex).toHaveBeenCalledWith(2, { align: "center" });
+    await vi.waitFor(() => {
+      expect(resolveViewRow).toHaveBeenCalledWith("app", 3);
+      expect(scrollToIndex).toHaveBeenCalledWith(2, { align: "center" });
+    });
 
     scrollToIndex.mockClear();
+    resolveViewRow.mockClear();
+    resolveViewRow.mockResolvedValue(3);
 
-    // Same lineIndex, new nonce: should scroll again.
     rerender(
       <LogViewer
         alias="app"
@@ -285,7 +300,9 @@ describe("LogViewer", () => {
       />,
     );
 
-    expect(scrollToIndex).toHaveBeenCalledWith(2, { align: "center" });
+    await vi.waitFor(() => {
+      expect(scrollToIndex).toHaveBeenCalledWith(2, { align: "center" });
+    });
   });
 
   it("does not scroll when scrollToLine is null", () => {
@@ -301,7 +318,7 @@ describe("LogViewer", () => {
       <LogViewer alias="app" wrap={false} hasTimestampFormat={false} scrollToLine={null} />,
     );
 
-    expect(scrollToIndex).not.toHaveBeenCalled();
+    expect(resolveViewRow).not.toHaveBeenCalled();
   });
 
   it("selects a line on click and shows border-selected-line (FR-001/FR-002, normal view)", async () => {
@@ -467,6 +484,95 @@ describe("LogViewer", () => {
     rerender(<LogViewer alias="app" wrap={true} hasTimestampFormat={false} />);
 
     expect(measure).toHaveBeenCalled();
+  });
+
+  it("with filter active, clicking a search result passes correct alias and line index to scroll", async () => {
+    resolveViewRow.mockResolvedValue(1);
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      cb(0);
+      return 0;
+    });
+    useLogStream.mockReturnValue(
+      mockResult({
+        totalLines: 2,
+        fileTotalLines: 5,
+        lines: lineContentMap([
+          [1, content(2, "second line")],
+          [2, content(4, "fourth line")],
+        ]),
+      }),
+    );
+
+    render(
+      <LogViewer
+        alias="app"
+        wrap={false}
+        hasTimestampFormat={true}
+        scrollToLine={{ lineIndex: 2, nonce: 1 }}
+      />,
+    );
+
+    await vi.waitFor(() => {
+      expect(resolveViewRow).toHaveBeenCalledWith("app", 2);
+      expect(scrollToIndex).toHaveBeenCalledWith(0, { align: "center" });
+    });
+  });
+
+  it("navNonce scrolls to correct view-row when match is loaded", () => {
+    useLogStream.mockReturnValue(
+      mockResult({
+        totalLines: 5,
+        fileTotalLines: 5,
+        lines: lineContentMap([
+          [1, content(1, "one")],
+          [2, content(2, "two")],
+          [3, content(3, "three")],
+          [4, content(4, "four")],
+          [5, content(5, "five")],
+        ]),
+      }),
+    );
+    useLineSelectionStore.setState({
+      slices: { app: { selectedLine: 4, navNonce: 1 } },
+    });
+
+    render(<LogViewer alias="app" wrap={false} hasTimestampFormat={false} />);
+
+    expect(scrollToIndex).toHaveBeenCalledWith(3, { align: "auto" });
+  });
+
+  it("navNonce wrap-around scrolls correctly between first and last match", () => {
+    useLogStream.mockReturnValue(
+      mockResult({
+        totalLines: 5,
+        fileTotalLines: 5,
+        lines: lineContentMap([
+          [1, content(1, "one")],
+          [2, content(2, "two")],
+          [3, content(3, "three")],
+          [4, content(4, "four")],
+          [5, content(5, "five")],
+        ]),
+      }),
+    );
+    useLineSelectionStore.setState({
+      slices: { app: { selectedLine: 1, navNonce: 1 } },
+    });
+
+    const { rerender } = render(
+      <LogViewer alias="app" wrap={false} hasTimestampFormat={false} />,
+    );
+
+    expect(scrollToIndex).toHaveBeenCalledWith(0, { align: "auto" });
+
+    scrollToIndex.mockClear();
+    useLineSelectionStore.setState({
+      slices: { app: { selectedLine: 5, navNonce: 2 } },
+    });
+
+    rerender(<LogViewer alias="app" wrap={false} hasTimestampFormat={false} />);
+
+    expect(scrollToIndex).toHaveBeenCalledWith(4, { align: "auto" });
   });
 
   it("does not scroll for a selectedLine hidden by the active filter (no-op reverse lookup)", () => {
