@@ -237,4 +237,150 @@ describe("UpdateDialog", () => {
       screen.getByRole("button", { name: /later/i }),
     ).toBeInTheDocument();
   });
+
+  // T011: New UI states for Linux two-phase flow
+  it("renders Installing spinner for installing status", () => {
+    render(
+      <UpdateDialog
+        status="installing"
+        update={fakeUpdate()}
+        downloadProgress={null}
+        onStartDownload={() => {}}
+        onRestart={() => {}}
+        onDismiss={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Installing update...")).toBeInTheDocument();
+  });
+
+  it("renders install-error with pkexec-not-found message", () => {
+    render(
+      <UpdateDialog
+        status="install-error"
+        update={null}
+        downloadProgress={null}
+        errorInfo={{
+          kind: "pkexec-not-found",
+          message: "pkexec is not available",
+          releasesUrl: "https://github.com/guilhermenovais/logfile-analyzer/releases",
+        }}
+        onStartDownload={() => {}}
+        onRestart={() => {}}
+        onDismiss={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(/pkexec is not available/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /download manually/i })).toBeInTheDocument();
+  });
+
+  it("renders install-error with user-cancelled message", () => {
+    render(
+      <UpdateDialog
+        status="install-error"
+        update={null}
+        downloadProgress={null}
+        errorInfo={{
+          kind: "user-cancelled",
+          message: "Authentication was cancelled",
+          releasesUrl: "https://github.com/guilhermenovais/logfile-analyzer/releases",
+        }}
+        onStartDownload={() => {}}
+        onRestart={() => {}}
+        onDismiss={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(/authentication was cancelled/i)).toBeInTheDocument();
+  });
+
+  it("renders install-error with install-failed message", () => {
+    render(
+      <UpdateDialog
+        status="install-error"
+        update={null}
+        downloadProgress={null}
+        errorInfo={{
+          kind: "install-failed",
+          message: "Installation failed: exit code 1",
+          releasesUrl: "https://github.com/guilhermenovais/logfile-analyzer/releases",
+        }}
+        onStartDownload={() => {}}
+        onRestart={() => {}}
+        onDismiss={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(/installation failed/i)).toBeInTheDocument();
+  });
+
+  it("renders install-error with timeout message", () => {
+    render(
+      <UpdateDialog
+        status="install-error"
+        update={null}
+        downloadProgress={null}
+        errorInfo={{
+          kind: "timeout",
+          message: "Update timed out",
+          releasesUrl: "https://github.com/guilhermenovais/logfile-analyzer/releases",
+        }}
+        onStartDownload={() => {}}
+        onRestart={() => {}}
+        onDismiss={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(/timed out/i)).toBeInTheDocument();
+  });
+
+  it("shows Retry Install button on install-error", () => {
+    const onRetryInstall = vi.fn();
+    render(
+      <UpdateDialog
+        status="install-error"
+        update={null}
+        downloadProgress={null}
+        errorInfo={{
+          kind: "install-failed",
+          message: "Installation failed",
+          releasesUrl: "https://github.com/guilhermenovais/logfile-analyzer/releases",
+        }}
+        onRetryInstall={onRetryInstall}
+        onStartDownload={() => {}}
+        onRestart={() => {}}
+        onDismiss={() => {}}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /retry install/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("calls onRetryInstall when Retry Install is clicked", async () => {
+    const onRetryInstall = vi.fn();
+    render(
+      <UpdateDialog
+        status="install-error"
+        update={null}
+        downloadProgress={null}
+        errorInfo={{
+          kind: "install-failed",
+          message: "Installation failed",
+          releasesUrl: "https://github.com/guilhermenovais/logfile-analyzer/releases",
+        }}
+        onRetryInstall={onRetryInstall}
+        onStartDownload={() => {}}
+        onRestart={() => {}}
+        onDismiss={() => {}}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /retry install/i }),
+    );
+    expect(onRetryInstall).toHaveBeenCalledOnce();
+  });
 });

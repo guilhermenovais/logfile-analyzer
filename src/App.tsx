@@ -38,7 +38,9 @@ function App() {
         update={updateChecker.update}
         downloadProgress={updateChecker.downloadProgress}
         errorType={updateChecker.errorType}
+        errorInfo={updateChecker.errorInfo}
         onStartDownload={updateChecker.startDownload}
+        onRetryInstall={updateChecker.retryInstall}
         onRestart={() => void relaunch()}
         onDismiss={updateChecker.dismiss}
       />

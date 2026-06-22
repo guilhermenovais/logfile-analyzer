@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use tauri::Manager;
 use tauri_specta::{collect_commands, Builder};
 
-use commands::{files, highlights, search, settings, viewing, workspace};
+use commands::{files, highlights, search, settings, update, viewing, workspace};
 use mcp::server::{McpRuntimeStatus, McpServerState};
 use state::AppState;
 
@@ -53,6 +53,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         highlights::list_highlights,
         settings::get_mcp_status,
         settings::configure_mcp_port,
+        update::get_platform,
+        update::download_update,
+        update::install_update,
     ])
 }
 

@@ -5,9 +5,20 @@ import { useUpdateChecker } from "./useUpdateChecker";
 const check = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/plugin-updater", () => ({ check }));
 
+const mockGetPlatform = vi.hoisted(() => vi.fn());
+const mockDownloadUpdate = vi.hoisted(() => vi.fn());
+const mockInstallUpdate = vi.hoisted(() => vi.fn());
+vi.mock("@/ipc/update", () => ({
+  getPlatform: mockGetPlatform,
+  downloadUpdate: mockDownloadUpdate,
+  installUpdate: mockInstallUpdate,
+}));
+
 describe("useUpdateChecker", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.clearAllMocks();
+    mockGetPlatform.mockResolvedValue("windows");
   });
 
   afterEach(() => {
@@ -207,5 +218,231 @@ describe("useUpdateChecker", () => {
 
     expect(result.current.errorType).toBe("signature");
     expect(result.current.status).toBe("signature-error");
+  });
+
+  // T010: Linux two-phase update flow tests
+  describe("Linux two-phase flow", () => {
+    beforeEach(() => {
+      mockGetPlatform.mockResolvedValue("linux");
+    });
+
+    it("uses custom download+install on Linux", async () => {
+      const fakeUpdate = {
+        version: "1.2.0",
+        downloadAndInstall: vi.fn(),
+        download_url: "https://example.com/update.deb",
+        signature: "fakesig==",
+      };
+      check.mockResolvedValue(fakeUpdate);
+      mockDownloadUpdate.mockResolvedValue({
+        path: "/tmp/update.deb",
+        package_type: "deb",
+      });
+      mockInstallUpdate.mockResolvedValue(undefined);
+
+      const { result } = renderHook(() => useUpdateChecker());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.status).toBe("available");
+
+      await act(async () => {
+        result.current.startDownload();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(mockDownloadUpdate).toHaveBeenCalled();
+      expect(mockInstallUpdate).toHaveBeenCalledWith(
+        "/tmp/update.deb",
+        "deb",
+      );
+      expect(fakeUpdate.downloadAndInstall).not.toHaveBeenCalled();
+      expect(result.current.status).toBe("downloaded");
+    });
+
+    it("transitions through downloading → installing → downloaded on Linux", async () => {
+      const fakeUpdate = {
+        version: "1.2.0",
+        downloadAndInstall: vi.fn(),
+        download_url: "https://example.com/update.deb",
+        signature: "fakesig==",
+      };
+      check.mockResolvedValue(fakeUpdate);
+
+      let resolveDownload: (v: unknown) => void;
+      mockDownloadUpdate.mockReturnValue(
+        new Promise((resolve) => {
+          resolveDownload = resolve;
+        }),
+      );
+
+      const { result } = renderHook(() => useUpdateChecker());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      act(() => {
+        result.current.startDownload();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.status).toBe("downloading");
+
+      let resolveInstall: (v: unknown) => void;
+      mockInstallUpdate.mockReturnValue(
+        new Promise((resolve) => {
+          resolveInstall = resolve;
+        }),
+      );
+
+      await act(async () => {
+        resolveDownload!({ path: "/tmp/update.deb", package_type: "deb" });
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.status).toBe("installing");
+
+      await act(async () => {
+        resolveInstall!(undefined);
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.status).toBe("downloaded");
+    });
+
+    it("transitions to install-error on install failure", async () => {
+      const fakeUpdate = {
+        version: "1.2.0",
+        downloadAndInstall: vi.fn(),
+        download_url: "https://example.com/update.deb",
+        signature: "fakesig==",
+      };
+      check.mockResolvedValue(fakeUpdate);
+      mockDownloadUpdate.mockResolvedValue({
+        path: "/tmp/update.deb",
+        package_type: "deb",
+      });
+      mockInstallUpdate.mockRejectedValue({
+        kind: "UserCancelled",
+      });
+
+      const { result } = renderHook(() => useUpdateChecker());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      await act(async () => {
+        result.current.startDownload();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(result.current.status).toBe("install-error");
+      expect(result.current.errorInfo).toBeDefined();
+    });
+
+  });
+
+  // T018: Retry Install tests
+  describe("retry install", () => {
+    beforeEach(() => {
+      mockGetPlatform.mockResolvedValue("linux");
+    });
+
+    it("retryInstall calls installUpdate with stored path without re-downloading", async () => {
+      const fakeUpdate = {
+        version: "1.2.0",
+        downloadAndInstall: vi.fn(),
+        download_url: "https://example.com/update.deb",
+        signature: "fakesig==",
+      };
+      check.mockResolvedValue(fakeUpdate);
+      mockDownloadUpdate.mockResolvedValue({
+        path: "/tmp/update.deb",
+        package_type: "deb",
+      });
+      mockInstallUpdate.mockRejectedValueOnce({ kind: "UserCancelled" });
+
+      const { result } = renderHook(() => useUpdateChecker());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      await act(async () => {
+        result.current.startDownload();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(result.current.status).toBe("install-error");
+      expect(mockDownloadUpdate).toHaveBeenCalledTimes(1);
+
+      mockInstallUpdate.mockResolvedValueOnce(undefined);
+      await act(async () => {
+        result.current.retryInstall();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(result.current.status).toBe("downloaded");
+      expect(mockDownloadUpdate).toHaveBeenCalledTimes(1);
+      expect(mockInstallUpdate).toHaveBeenCalledTimes(2);
+      expect(mockInstallUpdate).toHaveBeenLastCalledWith(
+        "/tmp/update.deb",
+        "deb",
+      );
+    });
+  });
+
+  // T019: Hard timeout test
+  describe("hard timeout", () => {
+    beforeEach(() => {
+      mockGetPlatform.mockResolvedValue("linux");
+    });
+
+    it("transitions to install-error with timeout kind after 120s", async () => {
+      const fakeUpdate = {
+        version: "1.2.0",
+        downloadAndInstall: vi.fn(),
+        download_url: "https://example.com/update.deb",
+        signature: "fakesig==",
+      };
+      check.mockResolvedValue(fakeUpdate);
+      mockDownloadUpdate.mockReturnValue(new Promise(() => {}));
+
+      const { result } = renderHook(() => useUpdateChecker());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      act(() => {
+        result.current.startDownload();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(120_000);
+      });
+
+      expect(result.current.status).toBe("install-error");
+      expect(result.current.errorInfo?.kind).toBe("timeout");
+    });
+  });
+
+  it("uses plugin downloadAndInstall on non-Linux platforms", async () => {
+    mockGetPlatform.mockResolvedValue("macos");
+    const fakeUpdate = {
+      version: "1.2.0",
+      downloadAndInstall: vi.fn(() => Promise.resolve()),
+    };
+    check.mockResolvedValue(fakeUpdate);
+
+    const { result } = renderHook(() => useUpdateChecker());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    await act(async () => {
+      result.current.startDownload();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(fakeUpdate.downloadAndInstall).toHaveBeenCalled();
+    expect(mockDownloadUpdate).not.toHaveBeenCalled();
   });
 });

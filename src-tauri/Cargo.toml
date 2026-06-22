@@ -37,6 +37,11 @@ specta-typescript = "0.0.12"
 tauri-specta = { version = "2.0.0-rc.25", features = ["derive", "typescript"] }
 time = "=0.3.36"
 tauri-plugin-dialog = "2"
+reqwest = { version = "0.12", features = ["rustls-tls"] }
+minisign-verify = "0.2"
+base64 = "0.22"
+tempfile = "3"
+infer = "0.19"
 
 [dev-dependencies]
 tauri = { version = "2", features = ["specta", "test"] }

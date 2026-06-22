@@ -1,13 +1,19 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import type { Update } from "@tauri-apps/plugin-updater";
-import type { DownloadProgress, UpdateStatus } from "@/hooks/useUpdateChecker";
+import type {
+  DownloadProgress,
+  UpdateErrorInfo,
+  UpdateStatus,
+} from "@/hooks/useUpdateChecker";
 
 export interface UpdateDialogProps {
   status: UpdateStatus;
   update: Update | null;
   downloadProgress: DownloadProgress | null;
   errorType?: "network" | "signature" | null;
+  errorInfo?: UpdateErrorInfo | null;
   onStartDownload: () => void;
+  onRetryInstall?: () => void;
   onRestart: () => void;
   onDismiss: () => void;
 }
@@ -17,16 +23,20 @@ export function UpdateDialog({
   update,
   downloadProgress,
   errorType,
+  errorInfo,
   onStartDownload,
+  onRetryInstall,
   onRestart,
   onDismiss,
 }: UpdateDialogProps) {
   const showDialog =
     status === "available" ||
     status === "downloading" ||
+    status === "installing" ||
     status === "downloaded" ||
     status === "error" ||
-    status === "signature-error";
+    status === "signature-error" ||
+    status === "install-error";
 
   if (!showDialog) return null;
 
@@ -47,9 +57,13 @@ export function UpdateDialog({
               ? "Update Ready"
               : status === "downloading"
                 ? "Downloading Update"
-                : status === "error" || status === "signature-error"
-                  ? "Update Error"
-                  : "Update Available"}
+                : status === "installing"
+                  ? "Installing Update"
+                  : status === "install-error"
+                    ? "Install Error"
+                    : status === "error" || status === "signature-error"
+                      ? "Update Error"
+                      : "Update Available"}
           </Dialog.Title>
 
           {status === "available" && update && (
@@ -111,6 +125,12 @@ export function UpdateDialog({
             </>
           )}
 
+          {status === "installing" && (
+            <Dialog.Description className="mt-1 text-xs text-muted-foreground">
+              Installing update...
+            </Dialog.Description>
+          )}
+
           {status === "downloaded" && (
             <>
               <Dialog.Description className="mt-1 text-xs text-muted-foreground">
@@ -131,6 +151,42 @@ export function UpdateDialog({
                 >
                   Restart Now
                 </button>
+              </div>
+            </>
+          )}
+
+          {status === "install-error" && errorInfo && (
+            <>
+              <Dialog.Description className="mt-1 text-xs text-muted-foreground">
+                {errorInfo.message}
+              </Dialog.Description>
+              <div className="mt-3 flex items-center justify-between">
+                <a
+                  href={errorInfo.releasesUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-primary underline"
+                >
+                  Download Manually
+                </a>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={onDismiss}
+                    className="rounded border px-2 py-1 text-xs hover:bg-accent"
+                  >
+                    Dismiss
+                  </button>
+                  {onRetryInstall && (
+                    <button
+                      type="button"
+                      onClick={onRetryInstall}
+                      className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground"
+                    >
+                      Retry Install
+                    </button>
+                  )}
+                </div>
               </div>
             </>
           )}
