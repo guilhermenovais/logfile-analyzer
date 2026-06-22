@@ -138,6 +138,38 @@ describe("LogLine", () => {
     expect(row).not.toHaveClass("border-selected-line");
   });
 
+  it("shows title tooltip with highlight label on star button (T008/FR-004)", () => {
+    render(
+      <LogLine
+        lineIndex={1}
+        content="error occurred"
+        wrap={false}
+        isSelected={false}
+        onSelect={() => {}}
+        highlight={{ line_index: 1, content: "error occurred", label: "root cause", origin: "user" }}
+      />,
+    );
+
+    const star = screen.getByRole("button", { name: /remove highlight/i });
+    expect(star).toHaveAttribute("title", "root cause");
+  });
+
+  it("does not show title tooltip when highlight has no label (T008/FR-005)", () => {
+    render(
+      <LogLine
+        lineIndex={1}
+        content="start"
+        wrap={false}
+        isSelected={false}
+        onSelect={() => {}}
+        highlight={{ line_index: 1, content: "start", label: null, origin: "user" }}
+      />,
+    );
+
+    const star = screen.getByRole("button", { name: /remove highlight/i });
+    expect(star).not.toHaveAttribute("title");
+  });
+
   it("composes the selection border with highlight and search-match classes (FR-015)", () => {
     render(
       <LogLine

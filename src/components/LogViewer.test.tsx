@@ -451,6 +451,59 @@ describe("LogViewer", () => {
     expect(second).toHaveAttribute("data-index", "1");
   });
 
+  it("scrolls to highlightScrollToLine.lineIndex via resolveViewRow when nonce changes (T003/FR-002)", async () => {
+    resolveViewRow.mockResolvedValue(2);
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      cb(0);
+      return 0;
+    });
+    useLogStream.mockReturnValue(
+      mockResult({
+        totalLines: 5,
+        fileTotalLines: 5,
+        lines: lineContentMap([
+          [1, content(1, "one")],
+          [2, content(2, "two")],
+          [3, content(3, "three")],
+          [4, content(4, "four")],
+          [5, content(5, "five")],
+        ]),
+      }),
+    );
+
+    const { rerender } = render(
+      <LogViewer
+        alias="app"
+        wrap={false}
+        hasTimestampFormat={false}
+        highlightScrollToLine={{ lineIndex: 2, nonce: 1 }}
+      />,
+    );
+
+    await vi.waitFor(() => {
+      expect(resolveViewRow).toHaveBeenCalledWith("app", 2);
+      expect(scrollToIndex).toHaveBeenCalledWith(1, { align: "center" });
+    });
+
+    scrollToIndex.mockClear();
+    resolveViewRow.mockClear();
+    resolveViewRow.mockResolvedValue(4);
+
+    rerender(
+      <LogViewer
+        alias="app"
+        wrap={false}
+        hasTimestampFormat={false}
+        highlightScrollToLine={{ lineIndex: 4, nonce: 2 }}
+      />,
+    );
+
+    await vi.waitFor(() => {
+      expect(resolveViewRow).toHaveBeenCalledWith("app", 4);
+      expect(scrollToIndex).toHaveBeenCalledWith(3, { align: "center" });
+    });
+  });
+
   it("does not apply fixed height style to virtual items when wrap is enabled (T003)", () => {
     useLogStream.mockReturnValue(
       mockResult({

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FeatureErrorBoundary } from "@/components/FeatureErrorBoundary";
 import { HighlightPanel } from "@/components/HighlightPanel";
 import { LogViewer } from "@/components/LogViewer";
@@ -9,6 +9,7 @@ import { SearchResultsPanel } from "@/components/SearchResultsPanel";
 import { WorkspaceSidebar } from "@/components/WorkspaceSidebar";
 import { useFileProperties } from "@/hooks/useFileProperties";
 import { useHighlights } from "@/hooks/useHighlights";
+import { useLineSelectionStore } from "@/hooks/useLineSelectionStore";
 import {
   DEFAULT_LOG_VIEW_TOOLBAR_STATE,
   useLogViewToolbarStore,
@@ -63,6 +64,21 @@ export function WorkspacePage() {
         .initializeTimeRange(selectedAlias, firstTimestamp, lastTimestamp);
     }
   }, [selectedAlias, firstTimestamp, lastTimestamp]);
+
+  const highlightScrollNonce = useRef(0);
+  const [highlightScrollTarget, setHighlightScrollTarget] = useState<{
+    lineIndex: number;
+    nonce: number;
+  } | null>(null);
+
+  function handleHighlightSelect(lineIndex: number) {
+    useLineSelectionStore.getState().selectLine(selectedAlias!, lineIndex);
+    highlightScrollNonce.current += 1;
+    setHighlightScrollTarget({
+      lineIndex,
+      nonce: highlightScrollNonce.current,
+    });
+  }
 
   function handleToggleHighlight(lineIndex: number, isHighlighted: boolean) {
     if (isHighlighted) {
@@ -128,6 +144,8 @@ export function WorkspacePage() {
                   error={highlights.error}
                   onUpdateLabel={highlights.updateLabel}
                   onRemove={highlights.removeHighlight}
+                  alias={selectedAlias}
+                  onSelect={handleHighlightSelect}
                 />
               </FeatureErrorBoundary>
             )}
@@ -144,6 +162,7 @@ export function WorkspacePage() {
                   onToggleHighlight={handleToggleHighlight}
                   searchMatchLines={useSearchUiStore.searchMatchLines(selectedAlias)}
                   scrollToLine={useSearchUiStore.scrollToLine(selectedAlias)}
+                  highlightScrollToLine={highlightScrollTarget}
                   hasTimestampFormat={hasTimestampFormat}
                 />
               </FeatureErrorBoundary>

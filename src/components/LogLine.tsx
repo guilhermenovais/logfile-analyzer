@@ -55,6 +55,7 @@ export function LogLine({
     >
       <button
         type="button"
+        title={highlight?.label ?? undefined}
         aria-label={
           highlight
             ? `Remove highlight from line ${lineIndex}`
