@@ -94,6 +94,7 @@ pub struct SearchMatchEntry {
 pub struct SearchMatchBatch {
     pub matches: Vec<SearchMatchEntry>,
     pub truncated: bool,
+    pub total_count: u32,
 }
 
 /// A single match with its surrounding context, as streamed by

@@ -179,6 +179,7 @@ fn search_logical_streams_matching_lines_and_records_history() {
         SearchType::Logical,
         None,
         None,
+        None,
         channel,
     )
     .unwrap();
@@ -210,6 +211,7 @@ fn search_regex_streams_matching_lines() {
         SearchType::Regex,
         None,
         None,
+        None,
         channel,
     )
     .unwrap();
@@ -236,6 +238,7 @@ fn search_caps_results_and_marks_truncated() {
         SearchType::Logical,
         None,
         None,
+        None,
         channel,
     )
     .unwrap();
@@ -257,6 +260,7 @@ fn search_invalid_regex_is_invalid_query() {
         "app".into(),
         "(".into(),
         SearchType::Regex,
+        None,
         None,
         None,
         channel,
@@ -323,6 +327,7 @@ fn get_search_history_returns_workspace_history_regardless_of_file() {
         SearchType::Logical,
         None,
         None,
+        None,
         channel,
     )
     .unwrap();
@@ -334,6 +339,7 @@ fn get_search_history_returns_workspace_history_regardless_of_file() {
         "other".into(),
         r#""two""#.into(),
         SearchType::Logical,
+        None,
         None,
         None,
         channel,
@@ -370,6 +376,7 @@ fn search_time_range_filters_matches_by_timestamp() {
         r#""db""#.into(),
         SearchType::Logical,
         Some(TS_10_01),
+        None,
         None,
         channel,
     )
@@ -470,6 +477,7 @@ fn search_time_range_filters_through_real_indexing_pipeline() {
         SearchType::Logical,
         None,
         None,
+        None,
         channel,
     )
     .unwrap();
@@ -484,6 +492,7 @@ fn search_time_range_filters_through_real_indexing_pipeline() {
         SearchType::Logical,
         Some(first_timestamp),
         Some(last_timestamp),
+        None,
         channel,
     )
     .unwrap();
@@ -507,6 +516,7 @@ fn search_time_range_filters_through_real_indexing_pipeline() {
         SearchType::Logical,
         None,
         Some(midpoint),
+        None,
         channel,
     )
     .unwrap();
@@ -549,6 +559,7 @@ continuation: db trace info\n\
         SearchType::Logical,
         Some(TS_10_00),
         None,
+        None,
         channel,
     )
     .unwrap();
@@ -574,9 +585,91 @@ fn search_time_range_without_timestamp_format_is_unavailable() {
         SearchType::Logical,
         Some(TS_10_00),
         None,
+        None,
         channel,
     )
     .unwrap_err();
 
     assert!(matches!(err, AppError::TimeRangeUnavailable));
+}
+
+#[test]
+fn search_with_offset_none_returns_first_page_with_total_count() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+    let contents: String = (0..600).map(|_| "match\n").collect();
+    add_ready_file(&state, "app", contents.as_bytes());
+
+    let (channel, rx) = collecting_channel::<SearchMatchBatch>();
+    search::search(
+        state.clone(),
+        "app".into(),
+        r#""match""#.into(),
+        SearchType::Logical,
+        None,
+        None,
+        None,
+        channel,
+    )
+    .unwrap();
+
+    let batch = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(batch.matches.len(), 500);
+    assert_eq!(batch.total_count, 600);
+    assert!(batch.truncated);
+}
+
+#[test]
+fn search_with_offset_returns_second_page() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+    let contents: String = (0..600).map(|_| "match\n").collect();
+    add_ready_file(&state, "app", contents.as_bytes());
+
+    let (channel, rx) = collecting_channel::<SearchMatchBatch>();
+    search::search(
+        state.clone(),
+        "app".into(),
+        r#""match""#.into(),
+        SearchType::Logical,
+        None,
+        None,
+        Some(500),
+        channel,
+    )
+    .unwrap();
+
+    let batch = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(batch.matches.len(), 100);
+    assert_eq!(batch.total_count, 600);
+    assert!(!batch.truncated);
+}
+
+#[test]
+fn search_total_count_reflects_full_match_count_regardless_of_offset() {
+    let app = mock_app();
+    let state = app.state::<Arc<AppState>>();
+    add_ready_file(
+        &state,
+        "app",
+        b"one\ntwo\nthree\nfour\nfive\n",
+    );
+
+    let (channel, rx) = collecting_channel::<SearchMatchBatch>();
+    search::search(
+        state.clone(),
+        "app".into(),
+        r".*".into(),
+        SearchType::Regex,
+        None,
+        None,
+        None,
+        channel,
+    )
+    .unwrap();
+
+    let batch = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(batch.total_count, 5);
+    assert_eq!(batch.matches.len(), 5);
+    assert!(!batch.truncated);
 }

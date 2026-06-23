@@ -2,6 +2,7 @@ import { renderHook } from "@testing-library/react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getLineSelectionSlice, useLineSelectionStore } from "./useLineSelectionStore";
+import { useSearchUiStore } from "./useSearchUiStore";
 import { useLineSelectionKeyboard } from "./useLineSelectionKeyboard";
 
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
@@ -186,5 +187,110 @@ describe("useLineSelectionKeyboard - Up/Down (US4)", () => {
     expect(getLineSelectionSlice("app").navNonce).toBe(0);
 
     document.body.removeChild(input);
+  });
+});
+
+function fireShiftArrow(key: "ArrowUp" | "ArrowDown") {
+  const event = new KeyboardEvent("keydown", {
+    key,
+    shiftKey: true,
+    cancelable: true,
+  });
+  const notPrevented = window.dispatchEvent(event);
+  return { event, prevented: !notPrevented };
+}
+
+const searchMatches = [
+  { line_index: 2, content: "two" },
+  { line_index: 5, content: "five" },
+  { line_index: 9, content: "nine" },
+];
+
+describe("useLineSelectionKeyboard - Shift+Up/Down search navigation (US4)", () => {
+  beforeEach(() => {
+    useLineSelectionStore.setState({ slices: {} });
+    useSearchUiStore.setState({ slices: {} });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("Shift+Down calls nextMatch when search results are visible", () => {
+    useSearchUiStore.getState().setResults("app", searchMatches, false);
+    expect(useSearchUiStore.getState().slices["app"].currentMatchIndex).toBe(0);
+
+    renderHook(() =>
+      useLineSelectionKeyboard({
+        alias: "app",
+        selectedLine: 2,
+        totalLines: 20,
+        firstVisibleLineRef: { current: 1 },
+        getLineContent: () => undefined,
+      }),
+    );
+
+    fireShiftArrow("ArrowDown");
+
+    expect(useSearchUiStore.getState().slices["app"].currentMatchIndex).toBe(1);
+  });
+
+  it("Shift+Up calls prevMatch when search results are visible", () => {
+    useSearchUiStore.getState().setResults("app", searchMatches, false);
+    useSearchUiStore.getState().selectMatch("app", 2);
+
+    renderHook(() =>
+      useLineSelectionKeyboard({
+        alias: "app",
+        selectedLine: 9,
+        totalLines: 20,
+        firstVisibleLineRef: { current: 1 },
+        getLineContent: () => undefined,
+      }),
+    );
+
+    fireShiftArrow("ArrowUp");
+
+    expect(useSearchUiStore.getState().slices["app"].currentMatchIndex).toBe(1);
+  });
+
+  it("Shift+Down works when focused on a text input (FR-009)", () => {
+    useSearchUiStore.getState().setResults("app", searchMatches, false);
+
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+
+    renderHook(() =>
+      useLineSelectionKeyboard({
+        alias: "app",
+        selectedLine: 2,
+        totalLines: 20,
+        firstVisibleLineRef: { current: 1 },
+        getLineContent: () => undefined,
+      }),
+    );
+
+    fireShiftArrow("ArrowDown");
+
+    expect(useSearchUiStore.getState().slices["app"].currentMatchIndex).toBe(1);
+
+    document.body.removeChild(input);
+  });
+
+  it("Shift+Down does not affect search state when search panel is not open", () => {
+    renderHook(() =>
+      useLineSelectionKeyboard({
+        alias: "app",
+        selectedLine: 2,
+        totalLines: 20,
+        firstVisibleLineRef: { current: 1 },
+        getLineContent: () => undefined,
+      }),
+    );
+
+    fireShiftArrow("ArrowDown");
+
+    expect(useSearchUiStore.getState().slices["app"]).toBeUndefined();
   });
 });
