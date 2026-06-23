@@ -129,6 +129,7 @@ export function SearchBar({ alias, hasTimestampFormat }: SearchBarProps) {
         <button
           type="button"
           aria-label="Search history"
+          title="Search history"
           className="flex h-9 w-9 items-center justify-center rounded text-sm hover:bg-accent disabled:opacity-50"
           onClick={() => setHistoryOpen(true)}
           disabled={!alias}

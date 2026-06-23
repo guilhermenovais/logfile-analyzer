@@ -22,6 +22,11 @@ export interface SearchUiState {
   scrollNonce: number;
   /** Whether `timeFrom`/`timeTo` have been set, manually or pre-filled (FR-011–FR-013). */
   timeRangeInitialized: boolean;
+  /** Whether long lines in results wrap (FR-010–FR-012). Default: false. */
+  wrapLines: boolean;
+  currentPage: number;
+  totalCount: number;
+  isPageLoading: boolean;
 }
 
 export const DEFAULT_SEARCH_UI_STATE: SearchUiState = {
@@ -35,6 +40,10 @@ export const DEFAULT_SEARCH_UI_STATE: SearchUiState = {
   currentMatchIndex: -1,
   scrollNonce: 0,
   timeRangeInitialized: false,
+  wrapLines: false,
+  currentPage: 0,
+  totalCount: 0,
+  isPageLoading: false,
 };
 
 interface SearchUiStoreState {
@@ -56,12 +65,22 @@ interface SearchUiStoreState {
     alias: string,
     results: SearchMatchEntry[],
     truncated: boolean,
+    totalCount?: number,
   ) => void;
   selectMatch: (alias: string, index: number) => void;
   nextMatch: (alias: string) => void;
   prevMatch: (alias: string) => void;
   closePanel: (alias: string) => void;
   applyHistoryEntry: (alias: string, entry: SearchHistoryEntry) => void;
+  toggleWrapLines: (alias: string) => void;
+  setPageResults: (
+    alias: string,
+    results: SearchMatchEntry[],
+    truncated: boolean,
+    totalCount: number,
+    page: number,
+  ) => void;
+  setPageLoading: (alias: string, loading: boolean) => void;
 }
 
 /** Returns `alias`'s slice, or the defaults if `alias` has never been touched. */
@@ -102,7 +121,7 @@ const useSearchUiStoreBase = create<SearchUiStoreState>((set) => ({
       }
       return updateSlice(state, alias, { timeFrom, timeTo, timeRangeInitialized: true });
     }),
-  setResults: (alias, results, truncated) =>
+  setResults: (alias, results, truncated, totalCount) =>
     set((state) => {
       const current = getSlice(state, alias);
       if (results.length > 0) {
@@ -114,6 +133,9 @@ const useSearchUiStoreBase = create<SearchUiStoreState>((set) => ({
         panelOpen: true,
         currentMatchIndex: results.length > 0 ? 0 : -1,
         scrollNonce: current.scrollNonce + 1,
+        currentPage: 0,
+        totalCount: totalCount ?? results.length,
+        isPageLoading: false,
       });
     }),
   selectMatch: (alias, index) =>
@@ -169,6 +191,29 @@ const useSearchUiStoreBase = create<SearchUiStoreState>((set) => ({
         timeTo: entry.time_to,
       }),
     ),
+  toggleWrapLines: (alias) =>
+    set((state) => {
+      const current = getSlice(state, alias);
+      return updateSlice(state, alias, { wrapLines: !current.wrapLines });
+    }),
+  setPageResults: (alias, results, truncated, totalCount, page) =>
+    set((state) => {
+      const current = getSlice(state, alias);
+      if (results.length > 0) {
+        useLineSelectionStore.getState().selectLine(alias, results[0].line_index);
+      }
+      return updateSlice(state, alias, {
+        results,
+        truncated,
+        currentPage: page,
+        totalCount,
+        currentMatchIndex: results.length > 0 ? 0 : -1,
+        scrollNonce: current.scrollNonce + 1,
+        isPageLoading: false,
+      });
+    }),
+  setPageLoading: (alias, loading) =>
+    set((state) => updateSlice(state, alias, { isPageLoading: loading })),
 }));
 
 /** Non-reactive read of `alias`'s slice (or the defaults). */

@@ -29,11 +29,20 @@ export async function search(
   timeFrom: number | null,
   timeTo: number | null,
   onBatch: (batch: SearchMatchBatch) => void,
+  offset?: number | null,
 ): Promise<void> {
   const channel = new Channel<SearchMatchBatch>();
   channel.onmessage = onBatch;
   unwrapResult(
-    await commands.search(alias, query, searchType, timeFrom, timeTo, channel),
+    await commands.search(
+      alias,
+      query,
+      searchType,
+      timeFrom,
+      timeTo,
+      offset ?? null,
+      channel,
+    ),
   );
 }
 

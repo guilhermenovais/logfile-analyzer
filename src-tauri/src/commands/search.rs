@@ -48,6 +48,7 @@ fn context_match_to_dto(m: lf_query::ContextMatch) -> ContextMatch {
 /// Streams every matching line for `query` over `alias` (FR-021–FR-023) and
 /// records the search in history (FR-024). Shared with the MCP layer via
 /// the same `logfile::search` engine (FR-029).
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 #[specta::specta]
 pub fn search(
@@ -57,6 +58,7 @@ pub fn search(
     search_type: SearchType,
     time_from: Option<f64>,
     time_to: Option<f64>,
+    offset: Option<u32>,
     channel: Channel<SearchMatchBatch>,
 ) -> Result<()> {
     let runtime = resolve_runtime(&state, &alias)?;
@@ -78,10 +80,16 @@ pub fn search(
         );
     }
 
-    let truncated = match_indices.len() > MAX_MATCH_BATCH;
-    let matches = match_indices
+    let total_count = match_indices.len() as u32;
+    let start = offset.unwrap_or(0) as usize;
+    let page_indices: Vec<usize> = match_indices
         .into_iter()
+        .skip(start)
         .take(MAX_MATCH_BATCH)
+        .collect();
+    let truncated = (start + page_indices.len()) < total_count as usize;
+    let matches = page_indices
+        .into_iter()
         .map(|line_index| {
             let content = line_bytes(&runtime.mmap, &index.line_offsets, line_index)
                 .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
@@ -95,7 +103,11 @@ pub fn search(
     drop(index);
 
     channel
-        .send(SearchMatchBatch { matches, truncated })
+        .send(SearchMatchBatch {
+            matches,
+            truncated,
+            total_count,
+        })
         .map_err(|err| AppError::Io(err.to_string()))?;
 
     let db = state.db.lock().unwrap();

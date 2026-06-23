@@ -206,6 +206,16 @@ describe("SearchBar", () => {
     });
   });
 
+  describe("search history button tooltip (US3)", () => {
+    it("has title='Search history' on the clock icon button", () => {
+      useSearch.mockReturnValue(mockResult());
+
+      render(<SearchBar alias="app" hasTimestampFormat={false} />);
+
+      expect(screen.getByRole("button", { name: /search history/i })).toHaveAttribute("title", "Search history");
+    });
+  });
+
   describe("layout classes (US1)", () => {
     it("has shrink-0 on the outer wrapper and min-w-0 on the input wrapper", () => {
       useSearch.mockReturnValue(mockResult());

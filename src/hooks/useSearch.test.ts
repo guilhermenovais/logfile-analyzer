@@ -29,6 +29,7 @@ describe("useSearch", () => {
         onBatch({
           matches: [{ line_index: 3, content: "an error talking to db" }],
           truncated: false,
+          total_count: 1,
         });
       },
     );
@@ -46,6 +47,7 @@ describe("useSearch", () => {
       null,
       null,
       expect.any(Function),
+      null,
     );
 
     const slice = getSearchUiSlice("app");

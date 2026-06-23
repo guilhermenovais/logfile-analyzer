@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { useLineSelectionStore } from "./useLineSelectionStore";
+import { useSearchUiStore } from "./useSearchUiStore";
 
 export interface UseLineSelectionKeyboardOptions {
   alias: string;
@@ -44,6 +45,23 @@ export function useLineSelectionKeyboard(
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      if (
+        event.shiftKey &&
+        (event.key === "ArrowDown" || event.key === "ArrowUp")
+      ) {
+        const { alias } = optionsRef.current;
+        const slice = useSearchUiStore.getState().slices[alias];
+        if (slice?.panelOpen && slice.results.length > 0) {
+          event.preventDefault();
+          if (event.key === "ArrowDown") {
+            useSearchUiStore.getState().nextMatch(alias);
+          } else {
+            useSearchUiStore.getState().prevMatch(alias);
+          }
+          return;
+        }
+      }
+
       if (isTextInput(document.activeElement)) {
         return;
       }

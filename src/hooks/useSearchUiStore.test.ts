@@ -42,6 +42,10 @@ describe("useSearchUiStore", () => {
       currentMatchIndex: -1,
       scrollNonce: 0,
       timeRangeInitialized: false,
+      wrapLines: false,
+      currentPage: 0,
+      totalCount: 0,
+      isPageLoading: false,
     });
   });
 
@@ -200,6 +204,75 @@ describe("useSearchUiStore", () => {
       useSearchUiStore.getState().applyHistoryEntry("a", entry);
 
       expect(getSearchUiSlice("b")).toEqual(DEFAULT_SEARCH_UI_STATE);
+    });
+  });
+
+  describe("wrapLines (US5)", () => {
+    it("defaults wrapLines to false", () => {
+      expect(getSearchUiSlice("a").wrapLines).toBe(false);
+    });
+
+    it("toggleWrapLines flips wrapLines state", () => {
+      useSearchUiStore.getState().setResults("a", matches, false);
+
+      useSearchUiStore.getState().toggleWrapLines("a");
+      expect(getSearchUiSlice("a").wrapLines).toBe(true);
+
+      useSearchUiStore.getState().toggleWrapLines("a");
+      expect(getSearchUiSlice("a").wrapLines).toBe(false);
+    });
+
+    it("wrapLines persists across searches", () => {
+      useSearchUiStore.getState().toggleWrapLines("a");
+      expect(getSearchUiSlice("a").wrapLines).toBe(true);
+
+      useSearchUiStore.getState().setResults("a", matches, false);
+      expect(getSearchUiSlice("a").wrapLines).toBe(true);
+    });
+  });
+
+  describe("pagination state (US6)", () => {
+    it("defaults currentPage to 0, totalCount to 0, isPageLoading to false", () => {
+      const slice = getSearchUiSlice("a");
+      expect(slice.currentPage).toBe(0);
+      expect(slice.totalCount).toBe(0);
+      expect(slice.isPageLoading).toBe(false);
+    });
+
+    it("setResults resets currentPage to 0 and sets totalCount", () => {
+      useSearchUiStore.getState().setResults("a", matches, true, 600);
+
+      const slice = getSearchUiSlice("a");
+      expect(slice.currentPage).toBe(0);
+      expect(slice.totalCount).toBe(600);
+    });
+
+    it("setPageResults updates results, currentPage, and totalCount", () => {
+      useSearchUiStore.getState().setPageResults("a", matches, false, 600, 1);
+
+      const slice = getSearchUiSlice("a");
+      expect(slice.results).toEqual(matches);
+      expect(slice.currentPage).toBe(1);
+      expect(slice.totalCount).toBe(600);
+      expect(slice.truncated).toBe(false);
+    });
+
+    it("setPageLoading sets isPageLoading state", () => {
+      useSearchUiStore.getState().setPageLoading("a", true);
+      expect(getSearchUiSlice("a").isPageLoading).toBe(true);
+
+      useSearchUiStore.getState().setPageLoading("a", false);
+      expect(getSearchUiSlice("a").isPageLoading).toBe(false);
+    });
+
+    it("new search (setResults) resets pagination state (FR-016)", () => {
+      useSearchUiStore.getState().setPageResults("a", matches, true, 600, 2);
+      useSearchUiStore.getState().setResults("a", matches, false, 100);
+
+      const slice = getSearchUiSlice("a");
+      expect(slice.currentPage).toBe(0);
+      expect(slice.totalCount).toBe(100);
+      expect(slice.isPageLoading).toBe(false);
     });
   });
 
