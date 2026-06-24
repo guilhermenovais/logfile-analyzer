@@ -151,7 +151,7 @@ fn add_ready_file_with_timestamps(state: &Arc<AppState>, alias: &str, contents: 
         }),
         view_filter: RwLock::new(None),
     });
-    timestamp::detect_and_parse(&runtime.mmap, &runtime.index);
+    timestamp::detect_and_parse(&runtime.mmap, &runtime.index, None);
     state
         .files
         .write()
@@ -649,11 +649,7 @@ fn search_with_offset_returns_second_page() {
 fn search_total_count_reflects_full_match_count_regardless_of_offset() {
     let app = mock_app();
     let state = app.state::<Arc<AppState>>();
-    add_ready_file(
-        &state,
-        "app",
-        b"one\ntwo\nthree\nfour\nfive\n",
-    );
+    add_ready_file(&state, "app", b"one\ntwo\nthree\nfour\nfive\n");
 
     let (channel, rx) = collecting_channel::<SearchMatchBatch>();
     search::search(

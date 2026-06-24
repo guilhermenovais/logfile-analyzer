@@ -126,7 +126,7 @@ fn add_ready_file_with_timestamps(state: &Arc<AppState>, alias: &str, contents: 
         }),
         view_filter: RwLock::new(None),
     });
-    timestamp::detect_and_parse(&runtime.mmap, &runtime.index);
+    timestamp::detect_and_parse(&runtime.mmap, &runtime.index, None);
     {
         let db = state.db.lock().unwrap();
         log_file_entry::set_has_timestamp_format(&db, entry.id, true).unwrap();
@@ -323,7 +323,7 @@ fn file_properties_indexing_complete_waits_for_timestamp_detection() {
         }),
         view_filter: RwLock::new(None),
     });
-    timestamp::detect_and_parse(&runtime.mmap, &runtime.index);
+    timestamp::detect_and_parse(&runtime.mmap, &runtime.index, None);
     {
         let db = state.db.lock().unwrap();
         log_file_entry::set_has_timestamp_format(&db, entry.id, true).unwrap();

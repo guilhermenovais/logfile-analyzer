@@ -23,6 +23,10 @@ pub enum TimestampFormat {
     EpochSeconds,
     EpochMillis,
     SpaceSeparated,
+    DayFirst,
+    Syslog,
+    ApacheCombined,
+    MonthFirst,
 }
 
 /// The detected timestamp pattern for a file (data-model.md

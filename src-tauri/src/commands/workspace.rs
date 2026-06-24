@@ -53,9 +53,12 @@ pub fn load_workspace_files(
                     view_filter: RwLock::new(None),
                 });
                 files.insert(entry.alias.clone(), runtime.clone());
+                let file_mtime = std::fs::metadata(&entry.path)
+                    .and_then(|m| m.modified())
+                    .ok();
                 let app_state = state.clone();
                 tauri::async_runtime::spawn_blocking(move || {
-                    index_and_detect_timestamps(&app_state, &runtime);
+                    index_and_detect_timestamps(&app_state, &runtime, file_mtime);
                 });
                 true
             }

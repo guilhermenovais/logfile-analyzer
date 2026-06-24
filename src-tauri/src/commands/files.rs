@@ -16,9 +16,13 @@ use crate::state::{AppState, FileIndex, FileRuntime, IndexState};
 /// timestamp format and parses per-line timestamps (research.md §4),
 /// persisting `has_timestamp_format` if a format was detected (FR-011).
 /// Intended to run on a blocking thread.
-pub(crate) fn index_and_detect_timestamps(app_state: &AppState, runtime: &FileRuntime) {
+pub(crate) fn index_and_detect_timestamps(
+    app_state: &AppState,
+    runtime: &FileRuntime,
+    file_mtime: Option<std::time::SystemTime>,
+) {
     mmap_index::build_line_index(&runtime.mmap, &runtime.index);
-    timestamp::detect_and_parse(&runtime.mmap, &runtime.index);
+    timestamp::detect_and_parse(&runtime.mmap, &runtime.index, file_mtime);
 
     if runtime.index.read().unwrap().timestamp_profile.is_some() {
         let db = app_state.db.lock().unwrap();
@@ -126,9 +130,10 @@ pub fn add_file(
         .unwrap()
         .insert(alias.clone(), runtime.clone());
 
+    let file_mtime = std::fs::metadata(&path_str).and_then(|m| m.modified()).ok();
     let app_state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        index_and_detect_timestamps(&app_state, &runtime);
+        index_and_detect_timestamps(&app_state, &runtime, file_mtime);
     });
 
     Ok(LogFileSummary {
