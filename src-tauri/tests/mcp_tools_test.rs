@@ -148,7 +148,7 @@ fn add_ready_file_with_timestamps(state: &Arc<AppState>, alias: &str, contents: 
         }),
         view_filter: RwLock::new(None),
     });
-    timestamp::detect_and_parse(&runtime.mmap, &runtime.index);
+    timestamp::detect_and_parse(&runtime.mmap, &runtime.index, None);
     state
         .files
         .write()
